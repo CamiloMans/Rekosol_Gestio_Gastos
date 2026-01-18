@@ -2,6 +2,23 @@ export interface Empresa {
   id: string;
   razonSocial: string;
   rut: string;
+  numeroContacto?: string;
+  correoElectronico?: string;
+  createdAt: string;
+}
+
+export interface Proyecto {
+  id: string;
+  nombre: string;
+  createdAt: string;
+}
+
+export interface Colaborador {
+  id: string;
+  nombre: string;
+  email?: string;
+  telefono?: string;
+  cargo?: string;
   createdAt: string;
 }
 
@@ -10,10 +27,13 @@ export interface Gasto {
   fecha: string;
   empresaId: string;
   categoria: string;
-  tipoDocumento: 'Factura' | 'Boleta' | 'Orden de Compra';
+  tipoDocumento: 'Factura' | 'Boleta' | 'Orden de Compra' | 'Sin Documento' | 'Otros';
   numeroDocumento: string;
   monto: number;
   detalle?: string;
+  proyectoId?: string;
+  comentarioTipoDocumento?: string;
+  archivosAdjuntos?: Array<{ nombre: string; url: string; tipo: string }>;
 }
 
 export const categorias = [
@@ -31,6 +51,18 @@ export const empresasData: Empresa[] = [
   { id: '4', razonSocial: 'Cencosud S.A.', rut: '96.885.400-8', createdAt: '2025-09-29' },
   { id: '5', razonSocial: 'Falabella S.A.', rut: '96.790.240-3', createdAt: '2025-09-29' },
   { id: '6', razonSocial: 'Sodimac', rut: '17.720.312-2', createdAt: '2025-09-29' },
+];
+
+export const proyectosData: Proyecto[] = [
+  { id: '1', nombre: 'Proyecto Alpha', createdAt: '2025-09-29' },
+  { id: '2', nombre: 'Proyecto Beta', createdAt: '2025-09-29' },
+  { id: '3', nombre: 'Proyecto Gamma', createdAt: '2025-09-29' },
+  { id: '4', nombre: 'Proyecto Delta', createdAt: '2025-09-29' },
+];
+
+export const colaboradoresData: Colaborador[] = [
+  { id: '1', nombre: 'Juan Pérez', email: 'juan.perez@example.com', telefono: '+56912345678', cargo: 'Desarrollador', createdAt: '2025-09-29' },
+  { id: '2', nombre: 'María González', email: 'maria.gonzalez@example.com', telefono: '+56987654321', cargo: 'Diseñadora', createdAt: '2025-09-29' },
 ];
 
 export const gastosData: Gasto[] = [

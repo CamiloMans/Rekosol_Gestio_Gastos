@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { CategoryBadge } from '@/components/CategoryBadge';
@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Search, Filter, Pencil, Trash2 } from 'lucide-react';
+import { Search, Filter, Pencil, Trash2, FileText, Paperclip } from 'lucide-react';
+import { DocumentoViewer } from '@/components/DocumentoViewer';
 
 export default function Gastos() {
   const [modalOpen, setModalOpen] = useState(false);
@@ -18,6 +19,9 @@ export default function Gastos() {
   const [filterCategoria, setFilterCategoria] = useState('all');
   const [filterEmpresa, setFilterEmpresa] = useState('all');
   const [filterTipoDoc, setFilterTipoDoc] = useState('all');
+  const [filterMes, setFilterMes] = useState('all');
+  const [documentoViewerOpen, setDocumentoViewerOpen] = useState(false);
+  const [documentoSeleccionado, setDocumentoSeleccionado] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
 
   const filteredGastos = gastos.filter(gasto => {
     const empresa = empresasData.find(e => e.id === gasto.empresaId);
@@ -29,9 +33,34 @@ export default function Gastos() {
     const matchesCategoria = filterCategoria === 'all' || gasto.categoria === filterCategoria;
     const matchesEmpresa = filterEmpresa === 'all' || gasto.empresaId === filterEmpresa;
     const matchesTipoDoc = filterTipoDoc === 'all' || gasto.tipoDocumento === filterTipoDoc;
+    
+    // Filtrar por mes
+    let matchesMes = true;
+    if (filterMes !== 'all') {
+      const fechaGasto = new Date(gasto.fecha);
+      const mesGasto = `${fechaGasto.getFullYear()}-${String(fechaGasto.getMonth() + 1).padStart(2, '0')}`;
+      matchesMes = mesGasto === filterMes;
+    }
 
-    return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc;
+    return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesMes;
   });
+
+  // Obtener meses únicos de los gastos para el filtro
+  const mesesDisponibles = useMemo(() => {
+    const mesesSet = new Set<string>();
+    gastos.forEach(gasto => {
+      const fecha = new Date(gasto.fecha);
+      const mesKey = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
+      const mesLabel = fecha.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+      mesesSet.add(`${mesKey}|${mesLabel}`);
+    });
+    return Array.from(mesesSet)
+      .map(m => {
+        const [key, label] = m.split('|');
+        return { key, label: label.charAt(0).toUpperCase() + label.slice(1) };
+      })
+      .sort((a, b) => b.key.localeCompare(a.key)); // Ordenar de más reciente a más antiguo
+  }, [gastos]);
 
   const handleSaveGasto = (newGasto: Omit<Gasto, 'id'>) => {
     if (editingGasto) {
@@ -65,7 +94,7 @@ export default function Gastos() {
           <Filter size={18} className="text-muted-foreground" />
           <span className="font-medium">Filtros</span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <Select value={filterCategoria} onValueChange={setFilterCategoria}>
             <SelectTrigger className="bg-card">
               <SelectValue placeholder="Todas las categorías" />
@@ -99,6 +128,18 @@ export default function Gastos() {
               <SelectItem value="Factura">Factura</SelectItem>
               <SelectItem value="Boleta">Boleta</SelectItem>
               <SelectItem value="Orden de Compra">Orden de Compra</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={filterMes} onValueChange={setFilterMes}>
+            <SelectTrigger className="bg-card">
+              <SelectValue placeholder="Todos los meses" />
+            </SelectTrigger>
+            <SelectContent className="bg-card">
+              <SelectItem value="all">Todos los meses</SelectItem>
+              {mesesDisponibles.map((mes) => (
+                <SelectItem key={mes.key} value={mes.key}>{mes.label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -143,10 +184,38 @@ export default function Gastos() {
                     <CategoryBadge categoryId={gasto.categoria} />
                   </TableCell>
                   <TableCell>
-                    <div>
-                      <p className="font-medium">{gasto.tipoDocumento}</p>
-                      <p className="text-sm text-muted-foreground">#{gasto.numeroDocumento}</p>
-                    </div>
+                    {gasto.archivosAdjuntos && gasto.archivosAdjuntos.length > 0 ? (
+                      <div className="space-y-1">
+                        <p className="font-medium text-sm">{gasto.tipoDocumento}</p>
+                        <p className="text-xs text-muted-foreground">#{gasto.numeroDocumento}</p>
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {gasto.archivosAdjuntos.map((archivo, index) => (
+                            <Button
+                              key={index}
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs gap-1"
+                              onClick={() => {
+                                setDocumentoSeleccionado(archivo);
+                                setDocumentoViewerOpen(true);
+                              }}
+                            >
+                              <Paperclip size={12} />
+                              <span className="truncate max-w-[100px]">{archivo.nombre}</span>
+                            </Button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="font-medium">{gasto.tipoDocumento}</p>
+                        <p className="text-sm text-muted-foreground">#{gasto.numeroDocumento}</p>
+                        <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                          <FileText size={12} />
+                          Sin adjuntos
+                        </p>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell className="text-right font-semibold">
                     {formatCurrency(gasto.monto)}
@@ -176,6 +245,15 @@ export default function Gastos() {
         }}
         onSave={handleSaveGasto}
         gasto={editingGasto}
+      />
+
+      <DocumentoViewer
+        open={documentoViewerOpen}
+        onClose={() => {
+          setDocumentoViewerOpen(false);
+          setDocumentoSeleccionado(undefined);
+        }}
+        archivo={documentoSeleccionado}
       />
     </Layout>
   );

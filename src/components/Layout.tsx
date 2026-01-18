@@ -1,6 +1,6 @@
 import { ReactNode, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Receipt, Building2, BarChart3, Plus, DollarSign, Menu, X } from 'lucide-react';
+import { Receipt, Settings, BarChart3, Plus, DollarSign, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -12,12 +12,13 @@ interface LayoutProps {
 const navItems = [
   { path: '/', label: 'Reportes', icon: BarChart3 },
   { path: '/gastos', label: 'Gastos', icon: Receipt },
-  { path: '/empresas', label: 'Empresas', icon: Building2 },
+  { path: '/empresas', label: 'Configuración', icon: Settings },
 ];
 
 export function Layout({ children, onNewGasto }: LayoutProps) {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [logoError, setLogoError] = useState(false);
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -29,6 +30,29 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
         {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
       </button>
 
+      {/* Logo flotante - solo visible en móvil cuando el sidebar está oculto */}
+      {!mobileMenuOpen && (
+        <div 
+          className="fixed left-4 top-4 z-50 lg:hidden"
+          onClick={() => setMobileMenuOpen(true)}
+        >
+          <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center bg-transparent cursor-pointer">
+            {!logoError ? (
+              <img 
+                src="/logo-rekosol.png" 
+                alt="RekoSol Logo" 
+                className="w-full h-full object-cover rounded-xl"
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <div className="w-full h-full rounded-xl bg-accent flex items-center justify-center">
+                <DollarSign className="w-6 h-6 text-primary" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <aside
         className={cn(
@@ -37,10 +61,21 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
         )}
       >
         <div className="p-6">
-          {/* Logo */}
+          {/* Logo en sidebar */}
           <div className="flex items-center gap-3 mb-8">
-            <div className="w-12 h-12 rounded-xl bg-accent flex items-center justify-center">
-              <DollarSign className="w-6 h-6 text-primary" />
+            <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center bg-transparent">
+              {!logoError ? (
+                <img 
+                  src="/logo-rekosol.png" 
+                  alt="RekoSol Logo" 
+                  className="w-full h-full object-cover rounded-xl"
+                  onError={() => setLogoError(true)}
+                />
+              ) : (
+                <div className="w-full h-full rounded-xl bg-accent flex items-center justify-center">
+                  <DollarSign className="w-6 h-6 text-primary" />
+                </div>
+              )}
             </div>
             <div>
               <h1 className="font-bold text-lg text-foreground">RekoSol</h1>

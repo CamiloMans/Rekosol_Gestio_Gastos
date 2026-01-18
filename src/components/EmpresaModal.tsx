@@ -16,20 +16,31 @@ interface EmpresaModalProps {
 export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalProps) {
   const [razonSocial, setRazonSocial] = useState('');
   const [rut, setRut] = useState('');
+  const [numeroContacto, setNumeroContacto] = useState('');
+  const [correoElectronico, setCorreoElectronico] = useState('');
 
   useEffect(() => {
     if (empresa) {
       setRazonSocial(empresa.razonSocial);
       setRut(empresa.rut);
+      setNumeroContacto(empresa.numeroContacto || '');
+      setCorreoElectronico(empresa.correoElectronico || '');
     } else {
       setRazonSocial('');
       setRut('');
+      setNumeroContacto('');
+      setCorreoElectronico('');
     }
   }, [empresa, open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ razonSocial, rut });
+    onSave({ 
+      razonSocial, 
+      rut,
+      numeroContacto: numeroContacto || undefined,
+      correoElectronico: correoElectronico || undefined,
+    });
     onClose();
   };
 
@@ -43,10 +54,10 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="space-y-2">
-            <Label htmlFor="razonSocial">Razón Social *</Label>
+            <Label htmlFor="razonSocial">Nombre Empresa *</Label>
             <Input
               id="razonSocial"
-              placeholder="Nombre de la empresa"
+              placeholder="Ej: Sodimac"
               value={razonSocial}
               onChange={(e) => setRazonSocial(e.target.value)}
               required
@@ -54,14 +65,35 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="rut">RUT</Label>
+            <Label htmlFor="rut">Rut (sin punto y con guión)</Label>
             <Input
               id="rut"
-              placeholder="12.345.678-9"
+              placeholder="Ej: 17720312-5"
               value={rut}
               onChange={(e) => setRut(e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">Formato: 12.345.678-9</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="numeroContacto">Número de Contacto</Label>
+            <Input
+              id="numeroContacto"
+              type="tel"
+              placeholder="Ej: +56963936654"
+              value={numeroContacto}
+              onChange={(e) => setNumeroContacto(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="correoElectronico">Correo electrónico</Label>
+            <Input
+              id="correoElectronico"
+              type="email"
+              placeholder="Ej: correo@gmail.com"
+              value={correoElectronico}
+              onChange={(e) => setCorreoElectronico(e.target.value)}
+            />
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">

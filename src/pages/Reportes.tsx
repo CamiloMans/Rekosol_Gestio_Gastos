@@ -7,31 +7,69 @@ import { gastosData, empresasData, categorias, monthlyData, formatCurrency } fro
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
-import { TrendingUp, Calendar, Receipt, Building2 } from 'lucide-react';
+import { TrendingUp, Calendar, Receipt } from 'lucide-react';
 
 export default function Reportes() {
   const [periodo, setPeriodo] = useState<'mensual' | 'anual'>('anual');
   const [year, setYear] = useState('2025');
+  const [mes, setMes] = useState('all');
 
   const totalAnual = monthlyData.reduce((sum, m) => sum + m.total, 0);
-  const totalMes = gastosData.reduce((sum, g) => sum + g.monto, 0);
-  const categoriasActivas = new Set(gastosData.map(g => g.categoria)).size;
-  const empresasConGastos = new Set(gastosData.map(g => g.empresaId)).size;
+  
+  // Filtrar gastos según periodo y mes seleccionado
+  const gastosFiltrados = periodo === 'anual'
+    ? gastosData.filter(g => {
+        const fechaGasto = new Date(g.fecha);
+        return fechaGasto.getFullYear().toString() === year;
+      })
+    : mes !== 'all'
+    ? gastosData.filter(g => {
+        const fechaGasto = new Date(g.fecha);
+        const añoGasto = fechaGasto.getFullYear().toString();
+        const mesGasto = String(fechaGasto.getMonth() + 1).padStart(2, '0');
+        return añoGasto === year && mesGasto === mes;
+      })
+    : gastosData.filter(g => {
+        const fechaGasto = new Date(g.fecha);
+        return fechaGasto.getFullYear().toString() === year;
+      });
+  
+  // Calcular total según periodo y mes seleccionado
+  const totalDisplay = periodo === 'anual' 
+    ? totalAnual
+    : gastosFiltrados.reduce((sum, g) => sum + g.monto, 0);
+  
   const promedioMensual = totalAnual / 12;
   const mesMayorGasto = monthlyData.reduce((max, m) => m.total > max.total ? m : max, monthlyData[0]);
   const mesMenorGasto = monthlyData.reduce((min, m) => m.total < min.total ? m : min, monthlyData[0]);
+  
+  // Mapeo de meses abreviados a nombres completos
+  const mesesNombres: Record<string, string> = {
+    'ene': 'Ene',
+    'feb': 'Feb',
+    'mar': 'Mar',
+    'abr': 'Abr',
+    'may': 'May',
+    'jun': 'Jun',
+    'jul': 'Jul',
+    'ago': 'Ago',
+    'sep': 'Sep',
+    'oct': 'Oct',
+    'nov': 'Nov',
+    'dic': 'Dic'
+  };
 
-  // Categorías del año
+  // Categorías del periodo
   const categoriasTotals = categorias.map(cat => {
-    const total = gastosData.filter(g => g.categoria === cat.id).reduce((sum, g) => sum + g.monto, 0);
+    const total = gastosFiltrados.filter(g => g.categoria === cat.id).reduce((sum, g) => sum + g.monto, 0);
     return { ...cat, total };
   }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
 
   const totalCategorias = categoriasTotals.reduce((sum, c) => sum + c.total, 0);
 
-  // Empresas del año
+  // Empresas del periodo
   const empresasTotals = empresasData.map(emp => {
-    const total = gastosData.filter(g => g.empresaId === emp.id).reduce((sum, g) => sum + g.monto, 0);
+    const total = gastosFiltrados.filter(g => g.empresaId === emp.id).reduce((sum, g) => sum + g.monto, 0);
     return { ...emp, total };
   }).filter(e => e.total > 0).sort((a, b) => b.total - a.total);
 
@@ -47,41 +85,59 @@ export default function Reportes() {
 
   return (
     <Layout>
-      <PageHeader title="Reportes" subtitle={`Resumen anual - ${year}`}>
-        <ToggleGroup type="single" value={periodo} onValueChange={(v) => v && setPeriodo(v as 'mensual' | 'anual')}>
-          <ToggleGroupItem value="mensual" className="data-[state=on]:bg-muted">Mensual</ToggleGroupItem>
-          <ToggleGroupItem value="anual" className="data-[state=on]:bg-muted">Anual</ToggleGroupItem>
-        </ToggleGroup>
-        <Select value={year} onValueChange={setYear}>
-          <SelectTrigger className="w-24 bg-card">
-            <Calendar size={16} className="mr-2" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent className="bg-card">
-            <SelectItem value="2025">2025</SelectItem>
-            <SelectItem value="2024">2024</SelectItem>
-          </SelectContent>
-        </Select>
+      <PageHeader title="Reportes" subtitle={periodo === 'anual' ? `Resumen anual - ${year}` : `Resumen mensual - ${mes !== 'all' ? mes : year}`}>
+        <div className="flex items-center gap-3">
+          <ToggleGroup type="single" value={periodo} onValueChange={(v) => {
+            if (v) {
+              setPeriodo(v as 'mensual' | 'anual');
+              if (v === 'anual') setMes('all');
+            }
+          }}>
+            <ToggleGroupItem value="mensual" className="data-[state=on]:bg-muted">Mensual</ToggleGroupItem>
+            <ToggleGroupItem value="anual" className="data-[state=on]:bg-muted">Anual</ToggleGroupItem>
+          </ToggleGroup>
+          {periodo === 'mensual' && (
+            <Select value={mes} onValueChange={setMes}>
+              <SelectTrigger className="w-40 bg-card">
+                <Calendar size={16} className="mr-2" />
+                <SelectValue placeholder="Seleccionar mes" />
+              </SelectTrigger>
+              <SelectContent className="bg-card">
+                <SelectItem value="all">Todos los meses</SelectItem>
+                <SelectItem value="01">Enero</SelectItem>
+                <SelectItem value="02">Febrero</SelectItem>
+                <SelectItem value="03">Marzo</SelectItem>
+                <SelectItem value="04">Abril</SelectItem>
+                <SelectItem value="05">Mayo</SelectItem>
+                <SelectItem value="06">Junio</SelectItem>
+                <SelectItem value="07">Julio</SelectItem>
+                <SelectItem value="08">Agosto</SelectItem>
+                <SelectItem value="09">Septiembre</SelectItem>
+                <SelectItem value="10">Octubre</SelectItem>
+                <SelectItem value="11">Noviembre</SelectItem>
+                <SelectItem value="12">Diciembre</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
+          <Select value={year} onValueChange={setYear}>
+            <SelectTrigger className="w-32 bg-card">
+              <Calendar size={16} className="mr-2" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-card">
+              <SelectItem value="2025">2025</SelectItem>
+              <SelectItem value="2024">2024</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </PageHeader>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <StatCard
           icon={<Receipt className="w-6 h-6 text-primary" />}
-          label="Total del Mes"
-          value={formatCurrency(totalMes)}
-          iconBgClass="bg-accent"
-        />
-        <StatCard
-          icon={<TrendingUp className="w-6 h-6 text-category-sueldos" />}
-          label="Categorías Activas"
-          value={categoriasActivas}
-          iconBgClass="bg-green-50"
-        />
-        <StatCard
-          icon={<Building2 className="w-6 h-6 text-primary" />}
-          label="Empresas con Gastos"
-          value={empresasConGastos}
+          label={periodo === 'anual' ? 'Total Anual' : 'Total del Mes'}
+          value={formatCurrency(totalDisplay)}
           iconBgClass="bg-accent"
         />
       </div>

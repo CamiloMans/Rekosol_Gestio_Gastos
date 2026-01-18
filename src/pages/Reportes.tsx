@@ -1,18 +1,22 @@
 import { useState } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
+import { StatCard } from '@/components/StatCard';
 import { CategoryBadge } from '@/components/CategoryBadge';
 import { gastosData, empresasData, categorias, monthlyData, formatCurrency } from '@/data/mockData';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
-import { TrendingUp, Calendar } from 'lucide-react';
+import { TrendingUp, Calendar, Receipt, Building2 } from 'lucide-react';
 
 export default function Reportes() {
   const [periodo, setPeriodo] = useState<'mensual' | 'anual'>('anual');
   const [year, setYear] = useState('2025');
 
   const totalAnual = monthlyData.reduce((sum, m) => sum + m.total, 0);
+  const totalMes = gastosData.reduce((sum, g) => sum + g.monto, 0);
+  const categoriasActivas = new Set(gastosData.map(g => g.categoria)).size;
+  const empresasConGastos = new Set(gastosData.map(g => g.empresaId)).size;
   const promedioMensual = totalAnual / 12;
   const mesMayorGasto = monthlyData.reduce((max, m) => m.total > max.total ? m : max, monthlyData[0]);
   const mesMenorGasto = monthlyData.reduce((min, m) => m.total < min.total ? m : min, monthlyData[0]);
@@ -60,11 +64,26 @@ export default function Reportes() {
         </Select>
       </PageHeader>
 
-      {/* Total del Año */}
-      <div className="bg-card rounded-xl p-8 mb-6 shadow-sm border border-border text-center animate-fade-in">
-        <p className="text-muted-foreground mb-2">Total del Año</p>
-        <p className="text-4xl font-bold text-foreground">{formatCurrency(totalAnual)}</p>
-        <p className="text-muted-foreground mt-1">{year}</p>
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <StatCard
+          icon={<Receipt className="w-6 h-6 text-primary" />}
+          label="Total del Mes"
+          value={formatCurrency(totalMes)}
+          iconBgClass="bg-accent"
+        />
+        <StatCard
+          icon={<TrendingUp className="w-6 h-6 text-category-sueldos" />}
+          label="Categorías Activas"
+          value={categoriasActivas}
+          iconBgClass="bg-green-50"
+        />
+        <StatCard
+          icon={<Building2 className="w-6 h-6 text-primary" />}
+          label="Empresas con Gastos"
+          value={empresasConGastos}
+          iconBgClass="bg-accent"
+        />
       </div>
 
       {/* Evolución Mensual Chart */}

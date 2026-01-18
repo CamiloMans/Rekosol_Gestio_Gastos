@@ -3,7 +3,7 @@ import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { CategoryBadge } from '@/components/CategoryBadge';
 import { GastoModal } from '@/components/GastoModal';
-import { gastosData, empresasData, categorias, formatCurrency, formatDate, Gasto } from '@/data/mockData';
+import { gastosData, empresasData, categorias, colaboradoresData, formatCurrency, formatDate, Gasto } from '@/data/mockData';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -89,12 +89,12 @@ export default function Gastos() {
       />
 
       {/* Filters */}
-      <div className="bg-card rounded-xl p-4 mb-6 shadow-sm border border-border">
-        <div className="flex items-center gap-2 mb-4">
-          <Filter size={18} className="text-muted-foreground" />
-          <span className="font-medium">Filtros</span>
+      <div className="bg-card rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 shadow-sm border border-border">
+        <div className="flex items-center gap-2 mb-3 sm:mb-4">
+          <Filter size={16} className="sm:w-[18px] sm:h-[18px] text-muted-foreground" />
+          <span className="font-medium text-sm sm:text-base">Filtros</span>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
           <Select value={filterCategoria} onValueChange={setFilterCategoria}>
             <SelectTrigger className="bg-card">
               <SelectValue placeholder="Todas las categorías" />
@@ -157,7 +157,8 @@ export default function Gastos() {
 
       {/* Table */}
       <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
-        <Table>
+        <div className="overflow-x-auto">
+          <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
               <TableHead className="font-semibold">FECHA</TableHead>
@@ -171,9 +172,17 @@ export default function Gastos() {
           <TableBody>
             {filteredGastos.map((gasto) => {
               const empresa = empresasData.find(e => e.id === gasto.empresaId);
+              const colaborador = gasto.colaboradorId ? colaboradoresData.find(c => c.id === gasto.colaboradorId) : null;
               return (
                 <TableRow key={gasto.id} className="animate-fade-in">
-                  <TableCell>{formatDate(gasto.fecha)}</TableCell>
+                  <TableCell>
+                    <div>
+                      {colaborador && (
+                        <p className="font-medium text-sm mb-1">{colaborador.nombre}</p>
+                      )}
+                      <p className="text-muted-foreground">{formatDate(gasto.fecha)}</p>
+                    </div>
+                  </TableCell>
                   <TableCell>
                     <div>
                       <p className="font-medium">{empresa?.razonSocial}</p>
@@ -235,6 +244,7 @@ export default function Gastos() {
             })}
           </TableBody>
         </Table>
+        </div>
       </div>
 
       <GastoModal

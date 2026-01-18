@@ -134,25 +134,25 @@ export default function Empresas() {
       />
 
       {/* Toggle Empresas/Proyectos/Colaboradores */}
-      <div className="bg-card rounded-xl p-4 mb-6 shadow-sm border border-border">
-        <ToggleGroup type="single" value={vista} onValueChange={(value) => value && setVista(value as 'empresas' | 'proyectos' | 'colaboradores')} className="justify-start">
-          <ToggleGroupItem value="empresas" aria-label="Ver empresas">
-            <Building2 size={18} className="mr-2" />
-            Empresas
+      <div className="bg-card rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 shadow-sm border border-border">
+        <ToggleGroup type="single" value={vista} onValueChange={(value) => value && setVista(value as 'empresas' | 'proyectos' | 'colaboradores')} className="flex-col sm:flex-row justify-start w-full sm:w-auto">
+          <ToggleGroupItem value="empresas" aria-label="Ver empresas" className="w-full sm:w-auto">
+            <Building2 size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
+            <span className="text-sm sm:text-base">Empresas</span>
           </ToggleGroupItem>
-          <ToggleGroupItem value="proyectos" aria-label="Ver proyectos">
-            <FolderKanban size={18} className="mr-2" />
-            Proyectos
+          <ToggleGroupItem value="proyectos" aria-label="Ver proyectos" className="w-full sm:w-auto">
+            <FolderKanban size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
+            <span className="text-sm sm:text-base">Proyectos</span>
           </ToggleGroupItem>
-          <ToggleGroupItem value="colaboradores" aria-label="Ver colaboradores">
-            <Users size={18} className="mr-2" />
-            Colaboradores
+          <ToggleGroupItem value="colaboradores" aria-label="Ver colaboradores" className="w-full sm:w-auto">
+            <Users size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
+            <span className="text-sm sm:text-base">Colaboradores</span>
           </ToggleGroupItem>
         </ToggleGroup>
       </div>
 
       {/* Search */}
-      <div className="bg-card rounded-xl p-4 mb-6 shadow-sm border border-border">
+      <div className="bg-card rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 shadow-sm border border-border">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
           <Input
@@ -167,9 +167,10 @@ export default function Empresas() {
       {/* Table */}
       <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
         <div className="p-4 border-b border-border">
-          <h3 className="font-semibold">{vista === 'empresas' ? 'Empresas Activas' : vista === 'proyectos' ? 'Proyectos Activos' : 'Colaboradores Activos'}</h3>
+          <h3 className="font-semibold text-sm sm:text-base">{vista === 'empresas' ? 'Empresas Activas' : vista === 'proyectos' ? 'Proyectos Activos' : 'Colaboradores Activos'}</h3>
         </div>
-        <Table>
+        <div className="overflow-x-auto">
+          <Table>
           {vista === 'empresas' ? (
             <>
               <TableHeader>
@@ -285,6 +286,7 @@ export default function Empresas() {
             </>
           )}
         </Table>
+        </div>
       </div>
 
       {vista === 'empresas' ? (

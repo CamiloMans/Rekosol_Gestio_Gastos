@@ -14,14 +14,14 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, action, children }: PageHeaderProps) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{title}</h1>
+    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 sm:mb-6">
+      <div className="min-w-0 flex-1">
+        <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">{title}</h1>
         {subtitle && (
-          <p className="text-muted-foreground mt-1">{subtitle}</p>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1 truncate">{subtitle}</p>
         )}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 flex-shrink-0">
         {children}
         {action && (
           <Button onClick={action.onClick} className="hidden sm:flex gap-2">

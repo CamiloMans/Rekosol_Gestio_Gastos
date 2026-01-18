@@ -32,6 +32,7 @@ export interface Gasto {
   monto: number;
   detalle?: string;
   proyectoId?: string;
+  colaboradorId?: string;
   comentarioTipoDocumento?: string;
   archivosAdjuntos?: Array<{ nombre: string; url: string; tipo: string }>;
 }
@@ -61,23 +62,24 @@ export const proyectosData: Proyecto[] = [
 ];
 
 export const colaboradoresData: Colaborador[] = [
-  { id: '1', nombre: 'Juan Pérez', email: 'juan.perez@example.com', telefono: '+56912345678', cargo: 'Desarrollador', createdAt: '2025-09-29' },
-  { id: '2', nombre: 'María González', email: 'maria.gonzalez@example.com', telefono: '+56987654321', cargo: 'Diseñadora', createdAt: '2025-09-29' },
+  { id: '1', nombre: 'Mauricio Soto', email: 'mauricio.soto@rekosol.cl', telefono: '+56912345678', cargo: 'Administrador', createdAt: '2025-09-29' },
+  { id: '2', nombre: 'Gerardo Soto', email: 'gerardo.soto@rekosol.cl', telefono: '+56987654321', cargo: 'Contador', createdAt: '2025-09-29' },
+  { id: '3', nombre: 'Camilo Mansilla', email: 'camilo.mansilla@rekosol.cl', telefono: '+56911223344', cargo: 'Operador', createdAt: '2025-09-29' },
 ];
 
 export const gastosData: Gasto[] = [
-  { id: '1', fecha: '2025-12-31', empresaId: '1', categoria: 'mantenimiento', tipoDocumento: 'Boleta', numeroDocumento: '120', monto: 10000000, detalle: 'Mantenimiento eléctrico' },
-  { id: '2', fecha: '2025-12-28', empresaId: '2', categoria: 'gastos-generales', tipoDocumento: 'Factura', numeroDocumento: '119', monto: 750000, detalle: 'Servicios telefónicos' },
-  { id: '3', fecha: '2025-12-25', empresaId: '3', categoria: 'materiales', tipoDocumento: 'Factura', numeroDocumento: '118', monto: 1300000, detalle: 'Compra de materiales' },
-  { id: '4', fecha: '2025-12-22', empresaId: '4', categoria: 'honorarios', tipoDocumento: 'Factura', numeroDocumento: '117', monto: 1500000, detalle: 'Honorarios consultoría' },
-  { id: '5', fecha: '2025-12-18', empresaId: '5', categoria: 'gastos-generales', tipoDocumento: 'Factura', numeroDocumento: '116', monto: 500000, detalle: 'Gastos varios' },
-  { id: '6', fecha: '2025-12-15', empresaId: '1', categoria: 'sueldos', tipoDocumento: 'Factura', numeroDocumento: '115', monto: 4250000, detalle: 'Sueldos diciembre' },
-  { id: '7', fecha: '2025-12-10', empresaId: '2', categoria: 'honorarios', tipoDocumento: 'Boleta', numeroDocumento: '114', monto: 2750000, detalle: 'Honorarios legales' },
-  { id: '8', fecha: '2025-12-05', empresaId: '3', categoria: 'gastos-generales', tipoDocumento: 'Factura', numeroDocumento: '113', monto: 890000, detalle: 'Servicios bancarios' },
-  { id: '9', fecha: '2025-11-28', empresaId: '4', categoria: 'materiales', tipoDocumento: 'Factura', numeroDocumento: '112', monto: 2100000, detalle: 'Materiales construcción' },
-  { id: '10', fecha: '2025-11-20', empresaId: '5', categoria: 'mantenimiento', tipoDocumento: 'Boleta', numeroDocumento: '111', monto: 650000, detalle: 'Reparaciones' },
-  { id: '11', fecha: '2025-11-15', empresaId: '6', categoria: 'materiales', tipoDocumento: 'Factura', numeroDocumento: '110', monto: 1120000, detalle: 'Herramientas' },
-  { id: '12', fecha: '2025-10-30', empresaId: '1', categoria: 'gastos-generales', tipoDocumento: 'Factura', numeroDocumento: '109', monto: 12034193, detalle: 'Gastos operacionales' },
+  { id: '1', fecha: '2025-12-31', empresaId: '1', categoria: 'mantenimiento', tipoDocumento: 'Boleta', numeroDocumento: '120', monto: 10000000, detalle: 'Mantenimiento eléctrico', colaboradorId: '1' },
+  { id: '2', fecha: '2025-12-28', empresaId: '2', categoria: 'gastos-generales', tipoDocumento: 'Factura', numeroDocumento: '119', monto: 750000, detalle: 'Servicios telefónicos', colaboradorId: '2' },
+  { id: '3', fecha: '2025-12-25', empresaId: '3', categoria: 'materiales', tipoDocumento: 'Factura', numeroDocumento: '118', monto: 1300000, detalle: 'Compra de materiales', colaboradorId: '3' },
+  { id: '4', fecha: '2025-12-22', empresaId: '4', categoria: 'honorarios', tipoDocumento: 'Factura', numeroDocumento: '117', monto: 1500000, detalle: 'Honorarios consultoría', colaboradorId: '1' },
+  { id: '5', fecha: '2025-12-18', empresaId: '5', categoria: 'gastos-generales', tipoDocumento: 'Factura', numeroDocumento: '116', monto: 500000, detalle: 'Gastos varios', colaboradorId: '3' },
+  { id: '6', fecha: '2025-12-15', empresaId: '1', categoria: 'sueldos', tipoDocumento: 'Factura', numeroDocumento: '115', monto: 4250000, detalle: 'Sueldos diciembre', colaboradorId: '2' },
+  { id: '7', fecha: '2025-12-10', empresaId: '2', categoria: 'honorarios', tipoDocumento: 'Boleta', numeroDocumento: '114', monto: 2750000, detalle: 'Honorarios legales', colaboradorId: '1' },
+  { id: '8', fecha: '2025-12-05', empresaId: '3', categoria: 'gastos-generales', tipoDocumento: 'Factura', numeroDocumento: '113', monto: 890000, detalle: 'Servicios bancarios', colaboradorId: '2' },
+  { id: '9', fecha: '2025-11-28', empresaId: '4', categoria: 'materiales', tipoDocumento: 'Factura', numeroDocumento: '112', monto: 2100000, detalle: 'Materiales construcción', colaboradorId: '3' },
+  { id: '10', fecha: '2025-11-20', empresaId: '5', categoria: 'mantenimiento', tipoDocumento: 'Boleta', numeroDocumento: '111', monto: 650000, detalle: 'Reparaciones', colaboradorId: '1' },
+  { id: '11', fecha: '2025-11-15', empresaId: '6', categoria: 'materiales', tipoDocumento: 'Factura', numeroDocumento: '110', monto: 1120000, detalle: 'Herramientas', colaboradorId: '2' },
+  { id: '12', fecha: '2025-10-30', empresaId: '1', categoria: 'gastos-generales', tipoDocumento: 'Factura', numeroDocumento: '109', monto: 12034193, detalle: 'Gastos operacionales', colaboradorId: '3' },
 ];
 
 export const monthlyData = [

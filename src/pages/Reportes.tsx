@@ -7,7 +7,7 @@ import { gastosData, empresasData, categorias, monthlyData, formatCurrency } fro
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
-import { TrendingUp, Calendar, Receipt } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, Receipt, DollarSign } from 'lucide-react';
 
 export default function Reportes() {
   const [periodo, setPeriodo] = useState<'mensual' | 'anual'>('anual');
@@ -86,19 +86,19 @@ export default function Reportes() {
   return (
     <Layout>
       <PageHeader title="Reportes" subtitle={periodo === 'anual' ? `Resumen anual - ${year}` : `Resumen mensual - ${mes !== 'all' ? mes : year}`}>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
           <ToggleGroup type="single" value={periodo} onValueChange={(v) => {
             if (v) {
               setPeriodo(v as 'mensual' | 'anual');
               if (v === 'anual') setMes('all');
             }
-          }}>
-            <ToggleGroupItem value="mensual" className="data-[state=on]:bg-muted">Mensual</ToggleGroupItem>
-            <ToggleGroupItem value="anual" className="data-[state=on]:bg-muted">Anual</ToggleGroupItem>
+          }} className="w-full sm:w-auto">
+            <ToggleGroupItem value="mensual" className="data-[state=on]:bg-muted flex-1 sm:flex-none">Mensual</ToggleGroupItem>
+            <ToggleGroupItem value="anual" className="data-[state=on]:bg-muted flex-1 sm:flex-none">Anual</ToggleGroupItem>
           </ToggleGroup>
           {periodo === 'mensual' && (
             <Select value={mes} onValueChange={setMes}>
-              <SelectTrigger className="w-40 bg-card">
+              <SelectTrigger className="w-full sm:w-40 bg-card">
                 <Calendar size={16} className="mr-2" />
                 <SelectValue placeholder="Seleccionar mes" />
               </SelectTrigger>
@@ -120,7 +120,7 @@ export default function Reportes() {
             </Select>
           )}
           <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="w-32 bg-card">
+            <SelectTrigger className="w-full sm:w-32 bg-card">
               <Calendar size={16} className="mr-2" />
               <SelectValue />
             </SelectTrigger>
@@ -133,22 +133,40 @@ export default function Reportes() {
       </PageHeader>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <StatCard
           icon={<Receipt className="w-6 h-6 text-primary" />}
           label={periodo === 'anual' ? 'Total Anual' : 'Total del Mes'}
           value={formatCurrency(totalDisplay)}
           iconBgClass="bg-accent"
         />
+        <StatCard
+          icon={<DollarSign className="w-6 h-6 text-primary" />}
+          label="Promedio Mensual"
+          value={formatCurrency(promedioMensual)}
+          iconBgClass="bg-accent"
+        />
+        <StatCard
+          icon={<TrendingUp className="w-6 h-6 text-emerald-700" />}
+          label="Mes Mayor Gasto"
+          value={mesesNombres[mesMayorGasto.mes] || mesMayorGasto.mes}
+          iconBgClass="bg-emerald-100"
+        />
+        <StatCard
+          icon={<TrendingDown className="w-6 h-6 text-red-700" />}
+          label="Mes Menor Gasto"
+          value={mesesNombres[mesMenorGasto.mes] || mesMenorGasto.mes}
+          iconBgClass="bg-red-100"
+        />
       </div>
 
       {/* Evolución Mensual Chart */}
-      <div className="bg-card rounded-xl p-6 mb-6 shadow-sm border border-border animate-fade-in">
-        <div className="flex items-center gap-2 mb-6">
+      <div className="bg-card rounded-xl p-4 sm:p-6 mb-6 shadow-sm border border-border animate-fade-in">
+        <div className="flex items-center gap-2 mb-4 sm:mb-6">
           <TrendingUp size={20} className="text-muted-foreground" />
-          <h3 className="text-lg font-semibold">Evolución Mensual {year}</h3>
+          <h3 className="text-base sm:text-lg font-semibold">Evolución Mensual {year}</h3>
         </div>
-        <div className="h-80">
+        <div className="h-64 sm:h-80">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={monthlyData}>
               <defs>
@@ -183,27 +201,11 @@ export default function Reportes() {
         </div>
       </div>
 
-      {/* Stats Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-card rounded-xl p-6 shadow-sm border border-border text-center animate-fade-in">
-          <p className="text-sm text-muted-foreground mb-1">Promedio Mensual</p>
-          <p className="text-xl font-bold">{formatCurrency(promedioMensual)}</p>
-        </div>
-        <div className="bg-card rounded-xl p-6 shadow-sm border border-border text-center animate-fade-in">
-          <p className="text-sm text-muted-foreground mb-1">Mes Mayor Gasto</p>
-          <p className="text-xl font-bold capitalize">{mesMayorGasto.mes}</p>
-        </div>
-        <div className="bg-card rounded-xl p-6 shadow-sm border border-border text-center animate-fade-in">
-          <p className="text-sm text-muted-foreground mb-1">Mes Menor Gasto</p>
-          <p className="text-xl font-bold capitalize">{mesMenorGasto.mes}</p>
-        </div>
-      </div>
-
       {/* Categories and Companies breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         {/* Categorías del Año */}
-        <div className="bg-card rounded-xl p-6 shadow-sm border border-border animate-fade-in">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <div className="bg-card rounded-xl p-4 sm:p-6 shadow-sm border border-border animate-fade-in">
+          <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
             <span className="text-muted-foreground">📊</span> Categorías del Año
           </h3>
           <div className="space-y-4">
@@ -234,32 +236,30 @@ export default function Reportes() {
         </div>
 
         {/* Empresas del Año */}
-        <div className="bg-card rounded-xl p-6 shadow-sm border border-border animate-fade-in">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <span className="text-muted-foreground">📊</span> Empresas del Año
+        <div className="bg-card rounded-xl p-4 sm:p-6 shadow-sm border border-border animate-fade-in">
+          <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
+            <span className="text-muted-foreground">🏢</span> Empresas del Año
           </h3>
-          <div className="space-y-4">
-            {empresasTotals.map((emp, index) => {
+          <div className="space-y-3 sm:space-y-4">
+            {empresasTotals.map((emp) => {
               const percentage = (emp.total / totalEmpresas) * 100;
-              const colors = ['#3b82f6', '#22c55e', '#06b6d4', '#8b5cf6', '#f97316', '#64748b'];
               return (
                 <div key={emp.id} className="space-y-2">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-medium">{emp.razonSocial}</p>
-                      <p className="text-sm text-muted-foreground">{emp.rut}</p>
+                      <p className="font-medium text-sm sm:text-base">{emp.razonSocial}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground font-mono">{emp.rut}</p>
                     </div>
                     <div className="text-right">
-                      <p className="font-semibold">{formatCurrency(emp.total)}</p>
-                      <p className="text-sm text-muted-foreground">{percentage.toFixed(1)}%</p>
+                      <p className="font-semibold text-sm sm:text-base">{formatCurrency(emp.total)}</p>
+                      <p className="text-xs sm:text-sm text-muted-foreground">{percentage.toFixed(1)}%</p>
                     </div>
                   </div>
                   <div className="w-full bg-muted rounded-full h-2">
                     <div 
-                      className="h-2 rounded-full transition-all duration-500"
+                      className="h-2 rounded-full transition-all duration-500 bg-primary"
                       style={{ 
-                        width: `${percentage}%`,
-                        backgroundColor: colors[index % colors.length]
+                        width: `${percentage}%`
                       }}
                     />
                   </div>

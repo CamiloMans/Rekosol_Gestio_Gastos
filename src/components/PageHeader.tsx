@@ -15,7 +15,7 @@ interface PageHeaderProps {
 export function PageHeader({ title, subtitle, action, children }: PageHeaderProps) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 sm:mb-6">
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 pl-12 sm:pl-0">
         <h1 className="text-xl sm:text-2xl font-bold text-foreground truncate">{title}</h1>
         {subtitle && (
           <p className="text-sm sm:text-base text-muted-foreground mt-1 truncate">{subtitle}</p>

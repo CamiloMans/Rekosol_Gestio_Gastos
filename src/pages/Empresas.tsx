@@ -123,7 +123,7 @@ export default function Empresas() {
   };
 
   return (
-    <Layout>
+    <Layout onNewGasto={() => setModalOpen(true)}>
       <PageHeader 
         title={vista === 'empresas' ? 'Empresas' : vista === 'proyectos' ? 'Proyectos' : 'Colaboradores'} 
         subtitle={vista === 'empresas' ? `${empresas.length} empresas activas` : vista === 'proyectos' ? `${proyectos.length} proyectos activos` : `${colaboradores.length} colaboradores activos`}

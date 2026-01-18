@@ -20,6 +20,7 @@ export default function Gastos() {
   const [filterEmpresa, setFilterEmpresa] = useState('all');
   const [filterTipoDoc, setFilterTipoDoc] = useState('all');
   const [filterMes, setFilterMes] = useState('all');
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
   const [documentoViewerOpen, setDocumentoViewerOpen] = useState(false);
   const [documentoSeleccionado, setDocumentoSeleccionado] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
 
@@ -91,10 +92,29 @@ export default function Gastos() {
       {/* Filters */}
       <div className="bg-card rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 shadow-sm border border-border">
         <div className="flex items-center gap-2 mb-3 sm:mb-4">
-          <Filter size={16} className="sm:w-[18px] sm:h-[18px] text-muted-foreground" />
-          <span className="font-medium text-sm sm:text-base">Filtros</span>
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+            <Input
+              placeholder="Buscar gasto..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+          <button
+            onClick={() => setFiltrosAbiertos(!filtrosAbiertos)}
+            className={`flex items-center gap-2 px-3 py-2 h-10 rounded-md transition-colors whitespace-nowrap ${
+              filtrosAbiertos 
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90' 
+                : 'bg-muted/50 hover:bg-muted'
+            }`}
+          >
+            <Filter size={16} className={filtrosAbiertos ? 'text-primary-foreground' : 'text-muted-foreground'} />
+            <span className={`font-medium text-sm ${filtrosAbiertos ? 'text-primary-foreground' : 'text-foreground'}`}>Filtros</span>
+          </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3">
+        {filtrosAbiertos && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 animate-fade-in">
           <Select value={filterCategoria} onValueChange={setFilterCategoria}>
             <SelectTrigger className="bg-card">
               <SelectValue placeholder="Todas las categorías" />
@@ -142,17 +162,8 @@ export default function Gastos() {
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        <div className="relative mt-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-          <Input
-            placeholder="Buscar por empresa, detalle o número de documento..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Table */}

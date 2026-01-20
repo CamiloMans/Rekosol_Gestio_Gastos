@@ -7,6 +7,7 @@ import Gastos from "./pages/Gastos";
 import Empresas from "./pages/Empresas";
 import Reportes from "./pages/Reportes";
 import NotFound from "./pages/NotFound";
+import CheckFields from "./pages/CheckFields";
 
 const queryClient = new QueryClient();
 
@@ -20,6 +21,7 @@ const App = () => (
           <Route path="/" element={<Reportes />} />
           <Route path="/gastos" element={<Gastos />} />
           <Route path="/empresas" element={<Empresas />} />
+          <Route path="/check-fields" element={<CheckFields />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

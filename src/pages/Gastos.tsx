@@ -1,19 +1,28 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { CategoryBadge } from '@/components/CategoryBadge';
 import { GastoModal } from '@/components/GastoModal';
-import { gastosData, empresasData, categorias, colaboradoresData, formatCurrency, formatDate, Gasto } from '@/data/mockData';
+import { gastosData, empresasData as empresasDataMock, categorias, colaboradoresData, formatCurrency, formatDate, Gasto } from '@/data/mockData';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Search, Filter, Pencil, Trash2, FileText, Paperclip } from 'lucide-react';
 import { DocumentoViewer } from '@/components/DocumentoViewer';
+import { useGastos, useEmpresas, useSharePointAuth } from '@/hooks/useSharePoint';
+import { toast } from '@/hooks/use-toast';
 
 export default function Gastos() {
+  const { isAuthenticated } = useSharePointAuth();
+  const { gastos: gastosSharePoint, loading: loadingGastos, error: errorGastos, createGasto, updateGasto, deleteGasto } = useGastos();
+  const { empresas: empresasSharePoint, loading: loadingEmpresas } = useEmpresas();
+  
+  // Usar datos de SharePoint si está autenticado, sino usar datos mock
+  const gastos = isAuthenticated ? gastosSharePoint : gastosData;
+  const empresasData = isAuthenticated ? empresasSharePoint : empresasDataMock;
+  
   const [modalOpen, setModalOpen] = useState(false);
-  const [gastos, setGastos] = useState(gastosData);
   const [editingGasto, setEditingGasto] = useState<Gasto | undefined>();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategoria, setFilterCategoria] = useState('all');
@@ -23,6 +32,17 @@ export default function Gastos() {
   const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
   const [documentoViewerOpen, setDocumentoViewerOpen] = useState(false);
   const [documentoSeleccionado, setDocumentoSeleccionado] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
+
+  // Mostrar errores
+  useEffect(() => {
+    if (errorGastos) {
+      toast({
+        title: "Error",
+        description: errorGastos.message,
+        variant: "destructive",
+      });
+    }
+  }, [errorGastos]);
 
   const filteredGastos = gastos.filter(gasto => {
     const empresa = empresasData.find(e => e.id === gasto.empresaId);
@@ -63,13 +83,42 @@ export default function Gastos() {
       .sort((a, b) => b.key.localeCompare(a.key)); // Ordenar de más reciente a más antiguo
   }, [gastos]);
 
-  const handleSaveGasto = (newGasto: Omit<Gasto, 'id'>) => {
-    if (editingGasto) {
-      setGastos(gastos.map(g => g.id === editingGasto.id ? { ...newGasto, id: editingGasto.id } : g));
-    } else {
-      setGastos([{ ...newGasto, id: Date.now().toString() }, ...gastos]);
+  const handleSaveGasto = async (newGasto: Omit<Gasto, 'id'>) => {
+    try {
+      if (editingGasto) {
+        if (isAuthenticated) {
+          await updateGasto(editingGasto.id, newGasto);
+        } else {
+          // Fallback a datos mock si no está autenticado
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesión para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      } else {
+        if (isAuthenticated) {
+          await createGasto(newGasto);
+          toast({
+            title: "Gasto guardado",
+            description: "El gasto se ha guardado correctamente en SharePoint",
+          });
+        } else {
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesión para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      }
+      setEditingGasto(undefined);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al guardar el gasto",
+        variant: "destructive",
+      });
     }
-    setEditingGasto(undefined);
   };
 
   const handleEdit = (gasto: Gasto) => {
@@ -77,15 +126,42 @@ export default function Gastos() {
     setModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    setGastos(gastos.filter(g => g.id !== id));
+  const handleDelete = async (id: string) => {
+    if (!isAuthenticated) {
+      toast({
+        title: "No autenticado",
+        description: "Por favor, inicia sesión para eliminar gastos",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (confirm("¿Estás seguro de que deseas eliminar este gasto?")) {
+      try {
+        await deleteGasto(id);
+        toast({
+          title: "Gasto eliminado",
+          description: "El gasto se ha eliminado correctamente",
+        });
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Error al eliminar el gasto",
+          variant: "destructive",
+        });
+      }
+    }
   };
 
   return (
     <Layout onNewGasto={() => setModalOpen(true)}>
       <PageHeader 
         title="Gastos" 
-        subtitle={`${filteredGastos.length} gastos encontrados`}
+        subtitle={
+          loadingGastos 
+            ? "Cargando gastos..." 
+            : `${filteredGastos.length} gastos encontrados${isAuthenticated ? ' (SharePoint)' : ' (Datos locales)'}`
+        }
         action={{ label: 'Nuevo Gasto', onClick: () => setModalOpen(true) }}
       />
 

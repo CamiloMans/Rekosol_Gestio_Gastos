@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { Receipt, Settings, BarChart3, Plus, DollarSign, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { SharePointAuth } from '@/components/SharePointAuth';
 
 interface LayoutProps {
   children: ReactNode;
@@ -13,6 +14,7 @@ const navItems = [
   { path: '/', label: 'Reportes', icon: BarChart3 },
   { path: '/gastos', label: 'Gastos', icon: Receipt },
   { path: '/empresas', label: 'Configuración', icon: Settings },
+  { path: '/check-fields', label: 'Verificar Campos', icon: Settings },
 ];
 
 export function Layout({ children, onNewGasto }: LayoutProps) {
@@ -163,6 +165,11 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
               );
             })}
           </nav>
+
+          {/* Authentication */}
+          <div className="mt-8 pt-8 border-t border-sidebar-border">
+            <SharePointAuth />
+          </div>
         </div>
       </aside>
 

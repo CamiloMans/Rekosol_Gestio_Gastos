@@ -1,4 +1,4 @@
-import { getGraphClient, getSiteId } from "@/lib/sharepointClient";
+import { getGraphClient, getSiteId, getAccessToken, getSharePointRestToken } from "@/lib/sharepointClient";
 import type { Gasto, Empresa, Proyecto, Colaborador } from "@/data/mockData";
 
 const SITE_ID_CACHE_KEY = "sharepoint_site_id";
@@ -7,8 +7,10 @@ const SITE_ID_CACHE_KEY = "sharepoint_site_id";
 const LISTS = {
   GASTOS: "REGISTRO_GASTOS",
   EMPRESAS: "Empresas",
-  PROYECTOS: "Proyectos",
+  PROYECTOS: "PROYECTOS",
   COLABORADORES: "Colaboradores",
+  CATEGORIAS: "CATEGORIAS",
+  TIPOS_DOCUMENTO: "TIPO_DOCUMENTO",
 };
 
 // Document Library para archivos adjuntos
@@ -52,9 +54,193 @@ async function getListId(listName: string): Promise<string> {
   }
 }
 
+/**
+ * Obtiene el nombre interno de una columna por su nombre de visualización
+ */
+async function getColumnInternalName(listId: string, displayName: string): Promise<string> {
+  const client = await getGraphClient();
+  const siteId = await getCachedSiteId();
+  
+  try {
+    const columns = await client
+      .api(`/sites/${siteId}/lists/${listId}/columns`)
+      .get();
+    
+    // Buscar la columna por nombre de visualización
+    const column = columns.value.find((col: any) => 
+      col.displayName === displayName || 
+      col.name === displayName ||
+      col.displayName?.toUpperCase() === displayName.toUpperCase() ||
+      col.name?.toUpperCase() === displayName.toUpperCase()
+    );
+    
+    if (column) {
+      console.log(`📋 Columna encontrada:`, {
+        displayName: column.displayName,
+        name: column.name,
+        type: column.text ? 'text' : column.lookup ? 'lookup' : column.type,
+        lookup: column.lookup ? {
+          allowMultipleValues: column.lookup.allowMultipleValues,
+          isRelationship: column.lookup.isRelationship,
+          relationshipDeleteBehavior: column.lookup.relationshipDeleteBehavior,
+          listId: column.lookup.listId,
+          columnName: column.lookup.columnName
+        } : null
+      });
+      
+      // Para campos lookup, SharePoint crea campos adicionales con sufijos
+      // El nombre interno puede ser diferente, pero para actualizar necesitamos usar el formato correcto
+      return column.name; // Nombre interno
+    }
+    
+    // Si no se encuentra, devolver el nombre original
+    console.warn(`⚠️ Columna "${displayName}" no encontrada, usando nombre original`);
+    console.warn(`⚠️ Columnas disponibles:`, columns.value.map((c: any) => ({ displayName: c.displayName, name: c.name })));
+    return displayName;
+  } catch (error) {
+    console.error(`Error al obtener nombre interno de columna "${displayName}":`, error);
+    return displayName; // Fallback al nombre original
+  }
+}
+
 // ========== SERVICIOS PARA GASTOS ==========
 
 export const gastosService = {
+  // Función temporal para revisar un item específico con attachments
+  async checkItemWithAttachments(id: string): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.GASTOS);
+    
+    try {
+      // Obtener el item
+      const item = await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
+        .expand("fields")
+        .get();
+      
+      console.log("📋 Item completo:", JSON.stringify(item, null, 2));
+      
+      // Para SharePoint lists, los attachments se acceden usando SharePoint REST API directamente
+      // No se puede usar Microsoft Graph API para attachments en list items
+      console.log("📎 Campo Attachments en fields:", item.fields?.Attachments);
+      console.log("📎 webUrl del item:", item.webUrl);
+      
+      // Usar SharePoint REST API directamente para obtener attachments
+      // Necesitamos un token específico para SharePoint REST API (no el de Microsoft Graph)
+      const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
+      const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
+      
+      // Construir la URL de SharePoint REST API usando el nombre de la lista
+      // IMPORTANTE: Usar la URL completa del sitio (incluyendo el path), no solo el origin
+      const listName = LISTS.GASTOS; // Usar el nombre de la lista
+      const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${id})/AttachmentFiles`;
+      
+      console.log("📎 Intentando obtener attachments desde SharePoint REST API:", restApiUrl);
+      
+      try {
+        const response = await fetch(restApiUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json;odata=verbose',
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          console.log("📎 Attachments desde SharePoint REST API:", JSON.stringify(data, null, 2));
+          
+          if (data.d && data.d.results && data.d.results.length > 0) {
+            console.log("📎 Número de attachments encontrados:", data.d.results.length);
+            
+            data.d.results.forEach((att: any, index: number) => {
+              console.log(`📎 Attachment ${index + 1}:`, {
+                FileName: att.FileName,
+                ServerRelativeUrl: att.ServerRelativeUrl,
+                // Construir URL completa
+                fullUrl: `${new URL(siteUrl).origin}${att.ServerRelativeUrl}`,
+                // Ver todos los campos disponibles
+                allFields: Object.keys(att),
+                fullObject: att,
+              });
+            });
+          } else {
+            console.log("📎 No se encontraron attachments en la respuesta");
+          }
+        } else {
+          const errorText = await response.text();
+          console.error("❌ Error al obtener attachments:", response.status, errorText);
+        }
+      } catch (restError: any) {
+        console.error("❌ Error al usar SharePoint REST API:", restError);
+      }
+    } catch (error) {
+      console.error("Error al revisar item con attachments:", error);
+      throw error;
+    }
+  },
+
+  // Función temporal para revisar las columnas lookup
+  async checkLookupColumns(): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.GASTOS);
+    
+    try {
+      // Obtener todas las columnas
+      const columns = await client
+        .api(`/sites/${siteId}/lists/${listId}/columns`)
+        .get();
+      
+      console.log("📋 Todas las columnas de la lista:");
+      columns.value.forEach((col: any) => {
+        if (col.lookup) {
+          console.log(`🔍 Columna lookup encontrada:`, {
+            displayName: col.displayName,
+            name: col.name,
+            lookup: {
+              listId: col.lookup.listId,
+              columnName: col.lookup.columnName,
+              allowMultipleValues: col.lookup.allowMultipleValues
+            }
+          });
+        }
+      });
+      
+      // Obtener un item reciente para ver los nombres reales de los campos
+      const items = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
+        .top(1)
+        .get();
+      
+      if (items.value && items.value.length > 0) {
+        const item = items.value[0];
+        console.log("📋 Item de ejemplo:", item.id);
+        console.log("📋 Todos los campos del item:", Object.keys(item.fields || {}));
+        
+        // Buscar campos que contengan "EMPRESA", "PROYECTO", "TIPO_DOCUMENTO"
+        const camposRelevantes = Object.keys(item.fields || {}).filter(k => 
+          k.includes('EMPRESA') || 
+          k.includes('PROYECTO') || 
+          k.includes('TIPO_DOCUMENTO') ||
+          k.includes('TipoDocumento') ||
+          k.includes('Empresa') ||
+          k.includes('Proyecto')
+        );
+        
+        console.log("📋 Campos relevantes encontrados:");
+        camposRelevantes.forEach(campo => {
+          console.log(`  - ${campo}:`, item.fields[campo], `(tipo: ${typeof item.fields[campo]})`);
+        });
+      }
+    } catch (error) {
+      console.error("Error al revisar columnas:", error);
+      throw error;
+    }
+  },
+
   async getAll(): Promise<Gasto[]> {
     const client = await getGraphClient();
     const siteId = await getCachedSiteId();
@@ -66,22 +252,113 @@ export const gastosService = {
         .expand("fields")
         .get();
       
-      return response.value.map((item: any) => ({
-        id: item.id,
-        fecha: item.fields.FECHA || item.fields.Fecha || item.fields.fecha || "",
-        empresaId: item.fields.EMPRESA || item.fields.Empresa || item.fields.empresa || "",
-        categoria: item.fields.CATEGORIA || item.fields.Categoria || item.fields.categoria || "",
-        tipoDocumento: item.fields.TIPO_DOCUMENTO || item.fields.TipoDocumento || item.fields.tipoDocumento || "Factura",
-        numeroDocumento: item.fields.NUMERO_DOCUMENTO || item.fields.NumeroDocumento || item.fields.numeroDocumento || "",
-        monto: item.fields.MONTO || item.fields.Monto || item.fields.monto || 0,
-        detalle: item.fields.DETALLE || item.fields.Detalle || item.fields.detalle || "",
-        proyectoId: item.fields.PROYECTO || item.fields.Proyecto || item.fields.proyecto || undefined,
-        comentarioTipoDocumento: item.fields.OTRO || item.fields.Otro || item.fields.otro || undefined,
-        archivosAdjuntos: item.fields.ArchivosAdjuntos || item.fields.archivosAdjuntos ? 
-          (typeof item.fields.ArchivosAdjuntos === 'string' ? JSON.parse(item.fields.ArchivosAdjuntos) : 
-           typeof item.fields.archivosAdjuntos === 'string' ? JSON.parse(item.fields.archivosAdjuntos) : 
-           item.fields.ArchivosAdjuntos || item.fields.archivosAdjuntos) : undefined,
-      }));
+      // Obtener todos los items con sus attachments usando SharePoint REST API
+      // Microsoft Graph API no soporta attachments en list items directamente
+      const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
+      const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
+      
+      const itemsWithAttachments = await Promise.all(
+        response.value.map(async (item: any) => {
+          // Obtener attachments usando SharePoint REST API
+          let attachments: Array<{ nombre: string; url: string; tipo: string }> = [];
+          
+          // Solo intentar obtener attachments si el campo Attachments es true
+          if (item.fields?.Attachments === true) {
+            try {
+              // Usar el nombre de la lista en lugar del GUID para SharePoint REST API
+              // IMPORTANTE: Usar la URL completa del sitio (incluyendo el path)
+              const listName = LISTS.GASTOS;
+              const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${item.id})/AttachmentFiles`;
+              const attachmentsResponse = await fetch(restApiUrl, {
+                method: 'GET',
+                headers: {
+                  'Accept': 'application/json;odata=verbose',
+                  'Authorization': `Bearer ${token}`,
+                },
+              });
+              
+              if (attachmentsResponse.ok) {
+                const data = await attachmentsResponse.json();
+                if (data.d && data.d.results && data.d.results.length > 0) {
+                  const siteUrlObj = new URL(siteUrl);
+                  attachments = data.d.results.map((att: any) => ({
+                    nombre: att.FileName,
+                    url: `${siteUrlObj.origin}${att.ServerRelativeUrl}`,
+                    tipo: att.ContentType || 'application/octet-stream',
+                  }));
+                }
+              }
+            } catch (attachmentsError) {
+              console.warn(`⚠️ No se pudieron obtener attachments para item ${item.id}:`, attachmentsError);
+            }
+          }
+          
+          return { ...item, attachments };
+        })
+      );
+      
+      return itemsWithAttachments.map((item: any) => {
+        // CATEGORIA es un campo lookup
+        // SharePoint almacena campos lookup con sufijos: "CATEGORIALookupId"
+        // Basado en el item 9 revisado: "CATEGORIALookupId": "3"
+        let categoriaId = "";
+        
+        // Buscar el campo lookup usando los nombres posibles
+        const categoriaLookupId = item.fields.CATEGORIALookupId || 
+                                  item.fields.CATEGORIA_x003a__x0020_IDLookupId ||
+                                  item.fields.CATEGORIA;
+        
+        if (categoriaLookupId) {
+          if (typeof categoriaLookupId === 'object' && categoriaLookupId.LookupId) {
+            // Es un objeto lookup
+            categoriaId = String(categoriaLookupId.LookupId);
+          } else {
+            // Es directamente el ID (número o string)
+            categoriaId = String(categoriaLookupId);
+          }
+        }
+        
+        // EMPRESA es un campo lookup
+        let empresaId = "";
+        const empresaLookupId = item.fields.EMPRESALookupId || 
+                                item.fields.EMPRESA_x003a__x0020_IDLookupId ||
+                                item.fields.EMPRESA;
+        if (empresaLookupId) {
+          empresaId = String(empresaLookupId);
+        }
+        
+        // TIPO_DOCUMENTO es un campo lookup
+        let tipoDocumentoId = "";
+        const tipoDocumentoLookupId = item.fields.TIPO_DOCUMENTOLookupId || 
+                                      item.fields.TIPO_DOCUMENTO_x003a__x0020_IDLookupId ||
+                                      item.fields.TIPO_DOCUMENTO;
+        if (tipoDocumentoLookupId) {
+          tipoDocumentoId = String(tipoDocumentoLookupId);
+        }
+        
+        // PROYECTO es un campo lookup
+        let proyectoId = "";
+        const proyectoLookupId = item.fields.PROYECTOLookupId || 
+                                 item.fields.PROYECTO_x003a__x0020_IDLookupId ||
+                                 item.fields.PROYECTO;
+        if (proyectoLookupId) {
+          proyectoId = String(proyectoLookupId);
+        }
+        
+        return {
+          id: item.id,
+          fecha: item.fields.FECHA || item.fields.Fecha || item.fields.fecha || "",
+          empresaId: empresaId, // Usar el ID del lookup
+          categoria: categoriaId, // Usar el ID del lookup
+          tipoDocumento: tipoDocumentoId || "Factura", // Usar el ID del lookup (necesitaremos mapear a nombre después)
+          numeroDocumento: item.fields.NUMERO_DOCUMENTO || item.fields.NumeroDocumento || item.fields.numeroDocumento || "",
+          monto: item.fields.MONTO || item.fields.Monto || item.fields.monto || 0,
+          detalle: item.fields.DETALLE || item.fields.Detalle || item.fields.detalle || "",
+          proyectoId: proyectoId || undefined, // Usar el ID del lookup
+          comentarioTipoDocumento: item.fields.OTRO || item.fields.Otro || item.fields.otro || undefined,
+          archivosAdjuntos: item.attachments && item.attachments.length > 0 ? item.attachments : undefined,
+        };
+      });
     } catch (error) {
       console.error("Error al obtener gastos:", error);
       throw error;
@@ -94,39 +371,324 @@ export const gastosService = {
     const listId = await getListId(LISTS.GASTOS);
     
     try {
-      // Mapeo de campos del formulario a columnas de SharePoint (nombres reales de SharePoint)
-      // Usando los nombres exactos que aparecen en SharePoint: PROYECTO, FECHA, CATEGORIA, TIPO_DOCUMENTO, OTRO, NUMERO_DOCUMENTO, EMPRESA, MONTO, DETALLE
+      // Obtener los nombres internos de las columnas lookup
+      const categoriaColumnName = await getColumnInternalName(listId, "CATEGORIA");
+      const empresaColumnName = await getColumnInternalName(listId, "EMPRESA");
+      const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
+      const tipoDocumentoColumnName = await getColumnInternalName(listId, "TIPO_DOCUMENTO");
+      
+      console.log("📋 Nombres internos de columnas lookup:");
+      console.log("  - CATEGORIA:", categoriaColumnName);
+      console.log("  - EMPRESA:", empresaColumnName);
+      console.log("  - PROYECTO:", proyectoColumnName);
+      console.log("  - TIPO_DOCUMENTO:", tipoDocumentoColumnName);
+      
+      // Parsear IDs de campos lookup (deben ser números)
+      let categoriaId: number | null = null;
+      if (gasto.categoria) {
+        const parsed = Number(gasto.categoria);
+        if (!isNaN(parsed) && parsed > 0) {
+          categoriaId = parsed;
+        } else {
+          console.warn("⚠️ ID de categoría inválido:", gasto.categoria);
+        }
+      }
+      
+      let empresaId: number | null = null;
+      if (gasto.empresaId) {
+        const parsed = Number(gasto.empresaId);
+        if (!isNaN(parsed) && parsed > 0) {
+          empresaId = parsed;
+        } else {
+          console.warn("⚠️ ID de empresa inválido:", gasto.empresaId);
+        }
+      }
+      
+      let proyectoId: number | null = null;
+      if (gasto.proyectoId) {
+        const parsed = Number(gasto.proyectoId);
+        if (!isNaN(parsed) && parsed > 0) {
+          proyectoId = parsed;
+        } else {
+          console.warn("⚠️ ID de proyecto inválido:", gasto.proyectoId);
+        }
+      }
+      
+      // TIPO_DOCUMENTO es lookup, necesitamos el ID
+      // Por ahora, asumimos que viene como ID numérico
+      let tipoDocumentoId: number | null = null;
+      if (gasto.tipoDocumento) {
+        const parsed = Number(gasto.tipoDocumento);
+        if (!isNaN(parsed) && parsed > 0) {
+          tipoDocumentoId = parsed;
+        } else {
+          // Si no es un número, puede ser el nombre del tipo de documento
+          // Por ahora, lo ignoramos y se actualizará después si es necesario
+          console.warn("⚠️ TIPO_DOCUMENTO no es un ID numérico:", gasto.tipoDocumento);
+        }
+      }
+      
+      // Campos básicos que NO son lookup
       const fields: any = {
         FECHA: gasto.fecha,
-        CATEGORIA: gasto.categoria,
-        TIPO_DOCUMENTO: gasto.tipoDocumento,
-        NUMERO_DOCUMENTO: gasto.numeroDocumento,
         MONTO: gasto.monto,
-        DETALLE: gasto.detalle || "",
-        PROYECTO: gasto.proyectoId || "",
-        OTRO: gasto.comentarioTipoDocumento || "",
-        // ArchivosAdjuntos se guarda como JSON si existe
       };
+      
+      // Agregar campos de texto simples (estos deberían funcionar)
+      if (gasto.detalle && gasto.detalle.trim() !== "") {
+        fields.DETALLE = gasto.detalle;
+      }
+      
+      if (gasto.numeroDocumento && gasto.numeroDocumento.trim() !== "") {
+        fields.NUMERO_DOCUMENTO = gasto.numeroDocumento;
+      }
+      
+      if (gasto.comentarioTipoDocumento && gasto.comentarioTipoDocumento.trim() !== "") {
+        fields.OTRO = gasto.comentarioTipoDocumento;
+      }
+      
+      // NOTA: Todos los campos lookup (CATEGORIA, EMPRESA, PROYECTO, TIPO_DOCUMENTO)
+      // se manejarán después con PATCH, no se agregan al POST inicial
       
       // Solo agregar ArchivosAdjuntos si existe
       if (gasto.archivosAdjuntos && gasto.archivosAdjuntos.length > 0) {
         fields.ArchivosAdjuntos = JSON.stringify(gasto.archivosAdjuntos);
       }
       
-      const finalFields = fields;
+      console.log("📤 Campos a enviar:", JSON.stringify(fields, null, 2));
+      console.log("📤 Tipo de cada campo:", Object.keys(fields).map(key => `${key}: ${typeof fields[key]}`));
       
+      // Validar que no haya campos undefined o null (SharePoint no los acepta)
+      const cleanFields: any = {};
+      Object.keys(fields).forEach(key => {
+        const value = fields[key];
+        // Solo incluir campos que tengan un valor válido
+        if (value !== undefined && value !== null && value !== "") {
+          cleanFields[key] = value;
+        }
+      });
+      
+      console.log("📤 Campos limpios a enviar:", JSON.stringify(cleanFields, null, 2));
+      
+      // Limpiar campos y preparar para envío
+      const fieldsToSend = { ...cleanFields };
+      
+      // Remover ArchivosAdjuntos por ahora (puede causar problemas)
+      if (fieldsToSend.ArchivosAdjuntos) {
+        console.log("⚠️ Removiendo campo ArchivosAdjuntos (se agregará después)...");
+        delete fieldsToSend.ArchivosAdjuntos;
+      }
+      
+      // Remover todos los campos lookup del POST inicial (SharePoint rechaza lookup en POST)
+      // Estos se actualizarán después con PATCH
+      const lookupFieldsToUpdate: { [key: string]: number } = {};
+      
+      // CATEGORIA
+      if (fieldsToSend[categoriaColumnName] || fieldsToSend.CATEGORIA) {
+        console.log("⚠️ Removiendo campo CATEGORIA del POST (se actualizará con PATCH después)");
+        delete fieldsToSend[categoriaColumnName];
+        delete fieldsToSend.CATEGORIA;
+      }
+      if (categoriaId !== null) {
+        lookupFieldsToUpdate[`${categoriaColumnName}LookupId`] = categoriaId;
+        console.log("📝 Categoría ID guardado para actualizar después:", categoriaId);
+      }
+      
+      // EMPRESA
+      if (fieldsToSend[empresaColumnName] || fieldsToSend.EMPRESA) {
+        console.log("⚠️ Removiendo campo EMPRESA del POST (se actualizará con PATCH después)");
+        delete fieldsToSend[empresaColumnName];
+        delete fieldsToSend.EMPRESA;
+      }
+      if (empresaId !== null) {
+        lookupFieldsToUpdate[`${empresaColumnName}LookupId`] = empresaId;
+        console.log("📝 Empresa ID guardado para actualizar después:", empresaId);
+      }
+      
+      // PROYECTO
+      if (fieldsToSend[proyectoColumnName] || fieldsToSend.PROYECTO) {
+        console.log("⚠️ Removiendo campo PROYECTO del POST (se actualizará con PATCH después)");
+        delete fieldsToSend[proyectoColumnName];
+        delete fieldsToSend.PROYECTO;
+      }
+      if (proyectoId !== null) {
+        lookupFieldsToUpdate[`${proyectoColumnName}LookupId`] = proyectoId;
+        console.log("📝 Proyecto ID guardado para actualizar después:", proyectoId);
+      }
+      
+      // TIPO_DOCUMENTO
+      if (fieldsToSend[tipoDocumentoColumnName] || fieldsToSend.TIPO_DOCUMENTO) {
+        console.log("⚠️ Removiendo campo TIPO_DOCUMENTO del POST (se actualizará con PATCH después)");
+        delete fieldsToSend[tipoDocumentoColumnName];
+        delete fieldsToSend.TIPO_DOCUMENTO;
+      }
+      if (tipoDocumentoId !== null) {
+        lookupFieldsToUpdate[`${tipoDocumentoColumnName}LookupId`] = tipoDocumentoId;
+        console.log("📝 Tipo Documento ID guardado para actualizar después:", tipoDocumentoId);
+      }
+      
+      console.log("📤 Campos finales a enviar (sin categoría):", JSON.stringify(fieldsToSend, null, 2));
+      console.log("📤 ¿Incluye CATEGORIA?", categoriaColumnName in fieldsToSend || "CATEGORIA" in fieldsToSend);
+      
+      // Crear el item SIN el campo lookup primero (para evitar error 400)
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
         .post({
-          fields: finalFields,
+          fields: fieldsToSend,
         });
+      
+      console.log("✅ Gasto creado exitosamente (sin campos lookup). Response ID:", response.id);
+      
+      // Actualizar todos los campos lookup con PATCH después de crear el item
+      // IMPORTANTE: Para campos lookup, SharePoint usa nombres con sufijo "LookupId"
+      if (Object.keys(lookupFieldsToUpdate).length > 0) {
+        try {
+          console.log("📝 Actualizando campos lookup después de crear el item...");
+          console.log("📝 ID del item:", response.id);
+          console.log("📝 Campos lookup a actualizar:", lookupFieldsToUpdate);
+          
+          // Actualizar todos los campos lookup en una sola llamada PATCH
+          await client
+            .api(`/sites/${siteId}/lists/${listId}/items/${response.id}/fields`)
+            .patch(lookupFieldsToUpdate);
+          
+          console.log("✅ Campos lookup actualizados exitosamente");
+          
+          // Leer el item actualizado para verificar
+          const itemUpdated = await client
+            .api(`/sites/${siteId}/lists/${listId}/items/${response.id}`)
+            .expand("fields")
+            .get();
+          
+          // Verificar que los campos se guardaron
+          Object.keys(lookupFieldsToUpdate).forEach(fieldName => {
+            const valorGuardado = itemUpdated.fields?.[fieldName];
+            if (valorGuardado) {
+              console.log(`✅ Campo ${fieldName} verificado y guardado correctamente:`, valorGuardado);
+            } else {
+              console.warn(`⚠️ Campo ${fieldName} no aparece después de actualizar. Verifica en SharePoint.`);
+            }
+          });
+        } catch (updateError: any) {
+          console.error("❌ Error al actualizar los campos lookup:", updateError);
+          if (updateError?.body) {
+            console.error("❌ Detalles del error:", JSON.stringify(updateError.body, null, 2));
+          }
+          // No lanzar el error - el item ya se creó, solo fallaron los campos lookup
+          console.warn("⚠️ El gasto se creó pero algunos campos lookup no se pudieron actualizar. Intenta actualizarlos manualmente.");
+        }
+      }
+      
+      // Subir archivos adjuntos después de crear el item
+      if (gasto.archivosAdjuntos && gasto.archivosAdjuntos.length > 0) {
+        try {
+          console.log("📎 Subiendo archivos adjuntos...");
+          console.log("📎 Número de archivos:", gasto.archivosAdjuntos.length);
+          
+          // Los archivos vienen como objetos con {nombre, url, tipo}
+          // Necesitamos convertir las URLs de blob a archivos File para subirlos
+          // O mejor, recibir los archivos File directamente desde el componente
+          // Por ahora, intentaremos subir los archivos que vengan como File objects
+          
+          // Si los archivos vienen como objetos con URL (blob URLs), necesitamos convertirlos
+          // Por ahora, asumimos que vienen como File objects desde el componente
+          const archivosParaSubir: File[] = [];
+          
+          for (const archivo of gasto.archivosAdjuntos) {
+            // Si el archivo tiene una propiedad 'file' (File object), usarlo
+            // Si no, intentar obtener el archivo desde la URL blob
+            if ((archivo as any).file instanceof File) {
+              archivosParaSubir.push((archivo as any).file);
+            } else {
+              // Si viene como objeto con URL blob, necesitamos el File original
+              // Por ahora, saltamos estos archivos y los manejaremos después
+              console.warn("⚠️ Archivo sin File object:", archivo.nombre);
+            }
+          }
+          
+          // Subir cada archivo como attachment
+          for (const archivo of archivosParaSubir) {
+            try {
+              console.log(`📎 Subiendo archivo: ${archivo.name}`);
+              
+              // Leer el archivo como ArrayBuffer
+              const arrayBuffer = await archivo.arrayBuffer();
+              
+              // Convertir a base64 de forma segura (maneja archivos grandes)
+              const bytes = new Uint8Array(arrayBuffer);
+              let binary = '';
+              const len = bytes.byteLength;
+              for (let i = 0; i < len; i++) {
+                binary += String.fromCharCode(bytes[i]);
+              }
+              const base64 = btoa(binary);
+              
+              // Subir el archivo usando SharePoint REST API
+              // Microsoft Graph API no soporta attachments en list items
+              const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
+              const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
+              
+              // Construir la URL de SharePoint REST API para subir el attachment
+              // IMPORTANTE: Usar la URL completa del sitio (incluyendo el path), no solo el origin
+              const listName = LISTS.GASTOS;
+              const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${response.id})/AttachmentFiles/add(FileName='${encodeURIComponent(archivo.name)}')`;
+              
+              // Subir el archivo usando SharePoint REST API
+              const uploadResponse = await fetch(restApiUrl, {
+                method: 'POST',
+                headers: {
+                  'Accept': 'application/json;odata=verbose',
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: base64,
+              });
+              
+              if (!uploadResponse.ok) {
+                const errorText = await uploadResponse.text();
+                throw new Error(`Error ${uploadResponse.status}: ${errorText}`);
+              }
+              
+              console.log(`✅ Archivo ${archivo.name} subido exitosamente`);
+            } catch (fileError: any) {
+              console.error(`❌ Error al subir archivo ${archivo.name}:`, fileError);
+              if (fileError?.body) {
+                console.error("❌ Detalles del error:", JSON.stringify(fileError.body, null, 2));
+              }
+              // Continuar con los demás archivos
+            }
+          }
+          
+          if (archivosParaSubir.length > 0) {
+            console.log(`✅ ${archivosParaSubir.length} archivo(s) adjunto(s) subido(s) exitosamente`);
+          }
+        } catch (attachmentsError: any) {
+          console.error("❌ Error al subir archivos adjuntos:", attachmentsError);
+          if (attachmentsError?.body) {
+            console.error("❌ Detalles del error:", JSON.stringify(attachmentsError.body, null, 2));
+          }
+          // No lanzar el error - el item ya se creó, solo fallaron los archivos
+          console.warn("⚠️ El gasto se creó pero algunos archivos adjuntos no se pudieron subir.");
+        }
+      }
       
       return {
         id: response.id,
         ...gasto,
       };
-    } catch (error) {
-      console.error("Error al crear gasto:", error);
+    } catch (error: any) {
+      console.error("❌ Error al crear gasto:", error);
+      if (error instanceof Error) {
+        console.error("Detalles del error:", error.message);
+      }
+      // Mostrar más detalles del error si están disponibles
+      if (error?.body) {
+        console.error("Cuerpo del error:", JSON.stringify(error.body, null, 2));
+      }
+      if (error?.statusCode) {
+        console.error("Código de estado:", error.statusCode);
+      }
       throw error;
     }
   },
@@ -143,8 +705,16 @@ export const gastosService = {
       if (gasto.fecha !== undefined) {
         fields.FECHA = gasto.fecha;
       }
-      if (gasto.categoria !== undefined) {
-        fields.CATEGORIA = gasto.categoria;
+      if (gasto.categoria !== undefined && gasto.categoria !== null && gasto.categoria !== '') {
+        // CATEGORIA es un campo lookup vinculado a la lista CATEGORIAS, necesitamos el ID del elemento
+        // El ID debe ser un número para campos lookup en SharePoint
+        const parsed = Number(gasto.categoria);
+        if (!isNaN(parsed) && parsed > 0) {
+          fields.CATEGORIA = parsed;
+          console.log("📝 Actualizando categoría con ID:", parsed);
+        } else {
+          console.warn("⚠️ ID de categoría inválido para actualización:", gasto.categoria);
+        }
       }
       if (gasto.tipoDocumento !== undefined) {
         fields.TIPO_DOCUMENTO = gasto.tipoDocumento;
@@ -216,10 +786,10 @@ export const empresasService = {
       
       return response.value.map((item: any) => ({
         id: item.id,
-        razonSocial: item.fields.RazonSocial || "",
-        rut: item.fields.RUT || "",
-        numeroContacto: item.fields.NumeroContacto || undefined,
-        correoElectronico: item.fields.CorreoElectronico || undefined,
+        razonSocial: item.fields.NOM_EMPRESA || item.fields.NomEmpresa || item.fields.RazonSocial || "",
+        rut: item.fields.RUT || item.fields.Rut || "",
+        numeroContacto: item.fields.NUM_CONTACTO || item.fields.NumContacto || item.fields.NumeroContacto || undefined,
+        correoElectronico: item.fields.CORREO || item.fields.Correo || item.fields.CorreoElectronico || undefined,
         createdAt: item.fields.CreatedAt || item.createdDateTime || "",
       }));
     } catch (error) {
@@ -234,16 +804,19 @@ export const empresasService = {
     const listId = await getListId(LISTS.EMPRESAS);
     
     try {
+      // Mapeo de campos del formulario a columnas de SharePoint (nombres reales)
+      // NOM_EMPRESA, RUT, NUM_CONTACTO, CORREO
+      const fields: any = {
+        NOM_EMPRESA: empresa.razonSocial,
+        RUT: empresa.rut,
+        NUM_CONTACTO: empresa.numeroContacto || "",
+        CORREO: empresa.correoElectronico || "",
+      };
+      
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .post({
-          fields: {
-            RazonSocial: empresa.razonSocial,
-            RUT: empresa.rut,
-            NumeroContacto: empresa.numeroContacto || "",
-            CorreoElectronico: empresa.correoElectronico || "",
-            CreatedAt: new Date().toISOString().split("T")[0],
-          },
+          fields,
         });
       
       return {
@@ -263,11 +836,12 @@ export const empresasService = {
     const listId = await getListId(LISTS.EMPRESAS);
     
     try {
+      // Mapeo usando los nombres reales de SharePoint
       const fields: any = {};
-      if (empresa.razonSocial !== undefined) fields.RazonSocial = empresa.razonSocial;
+      if (empresa.razonSocial !== undefined) fields.NOM_EMPRESA = empresa.razonSocial;
       if (empresa.rut !== undefined) fields.RUT = empresa.rut;
-      if (empresa.numeroContacto !== undefined) fields.NumeroContacto = empresa.numeroContacto || "";
-      if (empresa.correoElectronico !== undefined) fields.CorreoElectronico = empresa.correoElectronico || "";
+      if (empresa.numeroContacto !== undefined) fields.NUM_CONTACTO = empresa.numeroContacto || "";
+      if (empresa.correoElectronico !== undefined) fields.CORREO = empresa.correoElectronico || "";
       
       await client
         .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
@@ -312,7 +886,7 @@ export const proyectosService = {
       
       return response.value.map((item: any) => ({
         id: item.id,
-        nombre: item.fields.Nombre || item.fields.Title || "",
+        nombre: item.fields.NOM_PROYECTO || item.fields.NomProyecto || item.fields.Nombre || item.fields.Title || "",
         createdAt: item.fields.CreatedAt || item.createdDateTime || "",
       }));
     } catch (error) {
@@ -327,14 +901,15 @@ export const proyectosService = {
     const listId = await getListId(LISTS.PROYECTOS);
     
     try {
+      // Mapeo usando el nombre real de la columna en SharePoint: NOM_PROYECTO
+      const fields: any = {
+        NOM_PROYECTO: proyecto.nombre,
+      };
+      
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .post({
-          fields: {
-            Title: proyecto.nombre,
-            Nombre: proyecto.nombre,
-            CreatedAt: new Date().toISOString().split("T")[0],
-          },
+          fields,
         });
       
       return {
@@ -380,10 +955,10 @@ export const colaboradoresService = {
       
       return response.value.map((item: any) => ({
         id: item.id,
-        nombre: item.fields.Nombre || item.fields.Title || "",
-        email: item.fields.Email || undefined,
-        telefono: item.fields.Telefono || undefined,
-        cargo: item.fields.Cargo || undefined,
+        nombre: item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "",
+        email: item.fields.CORREO || item.fields.Correo || item.fields.Email || undefined,
+        telefono: item.fields.NUM_CONTACTO || item.fields.NumContacto || item.fields.Telefono || undefined,
+        cargo: item.fields.CARGO || item.fields.Cargo || undefined,
         createdAt: item.fields.CreatedAt || item.createdDateTime || "",
       }));
     } catch (error) {
@@ -398,17 +973,18 @@ export const colaboradoresService = {
     const listId = await getListId(LISTS.COLABORADORES);
     
     try {
+      // Mapeo usando los nombres reales de las columnas en SharePoint: NOMBRE, CORREO, NUM_CONTACTO, CARGO
+      const fields: any = {
+        NOMBRE: colaborador.nombre,
+        CORREO: colaborador.email || "",
+        NUM_CONTACTO: colaborador.telefono || "",
+        CARGO: colaborador.cargo || "",
+      };
+      
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .post({
-          fields: {
-            Title: colaborador.nombre,
-            Nombre: colaborador.nombre,
-            Email: colaborador.email || "",
-            Telefono: colaborador.telefono || "",
-            Cargo: colaborador.cargo || "",
-            CreatedAt: new Date().toISOString().split("T")[0],
-          },
+          fields,
         });
       
       return {
@@ -433,6 +1009,68 @@ export const colaboradoresService = {
         .delete();
     } catch (error) {
       console.error("Error al eliminar colaborador:", error);
+      throw error;
+    }
+  },
+};
+
+// ========== SERVICIOS PARA CATEGORIAS ==========
+
+export interface Categoria {
+  id: string;
+  nombre: string;
+  color?: string;
+}
+
+export const categoriasService = {
+  async getAll(): Promise<Categoria[]> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.CATEGORIAS);
+    
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
+        .get();
+      
+      return response.value.map((item: any) => ({
+        id: item.id,
+        nombre: item.fields.NOM_CATEGORIA || item.fields.NomCategoria || item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "",
+        color: item.fields.COLOR || item.fields.Color || `bg-category-${item.id}`,
+      }));
+    } catch (error) {
+      console.error("Error al obtener categorías:", error);
+      throw error;
+    }
+  },
+};
+
+// ========== SERVICIOS PARA TIPOS DE DOCUMENTO ==========
+
+export interface TipoDocumento {
+  id: string;
+  nombre: string;
+}
+
+export const tiposDocumentoService = {
+  async getAll(): Promise<TipoDocumento[]> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.TIPOS_DOCUMENTO);
+    
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
+        .get();
+      
+      return response.value.map((item: any) => ({
+        id: item.id,
+        nombre: item.fields.NOM_DOCUMENTO || item.fields.NomDocumento || item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "",
+      }));
+    } catch (error) {
+      console.error("Error al obtener tipos de documento:", error);
       throw error;
     }
   },

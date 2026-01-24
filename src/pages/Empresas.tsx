@@ -1,26 +1,60 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { EmpresaModal } from '@/components/EmpresaModal';
 import { ProyectoModal } from '@/components/ProyectoModal';
 import { ColaboradorModal } from '@/components/ColaboradorModal';
-import { empresasData, proyectosData, colaboradoresData, formatDateLong, Empresa, Proyecto, Colaborador } from '@/data/mockData';
+import { empresasData as empresasDataMock, proyectosData, colaboradoresData, formatDateLong, Empresa, Proyecto, Colaborador } from '@/data/mockData';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Search, Building2, FolderKanban, Users, Pencil, Trash2 } from 'lucide-react';
+import { useEmpresas, useProyectos, useColaboradores, useSharePointAuth } from '@/hooks/useSharePoint';
+import { toast } from '@/hooks/use-toast';
 
 export default function Empresas() {
+  const { isAuthenticated } = useSharePointAuth();
+  const { empresas: empresasSharePoint, loading: loadingEmpresas, error: errorEmpresas, createEmpresa, updateEmpresa, deleteEmpresa } = useEmpresas();
+  const { proyectos: proyectosSharePoint, loading: loadingProyectos, error: errorProyectos, createProyecto, deleteProyecto } = useProyectos();
+  const { colaboradores: colaboradoresSharePoint, loading: loadingColaboradores, error: errorColaboradores, createColaborador, deleteColaborador } = useColaboradores();
+  
+  // Usar datos de SharePoint si está autenticado, sino usar datos mock
+  const empresas = isAuthenticated ? empresasSharePoint : empresasDataMock;
+  const proyectos = isAuthenticated ? proyectosSharePoint : proyectosData;
+  const colaboradores = isAuthenticated ? colaboradoresSharePoint : colaboradoresData;
+  
   const [vista, setVista] = useState<'empresas' | 'proyectos' | 'colaboradores'>('empresas');
   const [modalOpen, setModalOpen] = useState(false);
-  const [empresas, setEmpresas] = useState(empresasData);
-  const [proyectos, setProyectos] = useState(proyectosData);
-  const [colaboradores, setColaboradores] = useState(colaboradoresData);
   const [editingEmpresa, setEditingEmpresa] = useState<Empresa | undefined>();
   const [editingProyecto, setEditingProyecto] = useState<Proyecto | undefined>();
   const [editingColaborador, setEditingColaborador] = useState<Colaborador | undefined>();
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Mostrar errores
+  useEffect(() => {
+    if (errorEmpresas) {
+      toast({
+        title: "Error",
+        description: errorEmpresas.message,
+        variant: "destructive",
+      });
+    }
+    if (errorProyectos) {
+      toast({
+        title: "Error",
+        description: errorProyectos.message,
+        variant: "destructive",
+      });
+    }
+    if (errorColaboradores) {
+      toast({
+        title: "Error",
+        description: errorColaboradores.message,
+        variant: "destructive",
+      });
+    }
+  }, [errorEmpresas, errorProyectos, errorColaboradores]);
 
   const filteredEmpresas = empresas.filter(empresa => 
     empresa.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -37,24 +71,45 @@ export default function Empresas() {
     colaborador.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const handleSaveEmpresa = (newEmpresa: Omit<Empresa, 'id' | 'createdAt'>) => {
-    if (editingEmpresa) {
-      setEmpresas(empresas.map(e => 
-        e.id === editingEmpresa.id 
-          ? { ...newEmpresa, id: editingEmpresa.id, createdAt: editingEmpresa.createdAt } 
-          : e
-      ));
-    } else {
-      setEmpresas([
-        { 
-          ...newEmpresa, 
-          id: Date.now().toString(), 
-          createdAt: new Date().toISOString().split('T')[0] 
-        }, 
-        ...empresas
-      ]);
+  const handleSaveEmpresa = async (newEmpresa: Omit<Empresa, 'id' | 'createdAt'>) => {
+    try {
+      if (editingEmpresa) {
+        if (isAuthenticated) {
+          await updateEmpresa(editingEmpresa.id, newEmpresa);
+          toast({
+            title: "Empresa actualizada",
+            description: "La empresa se ha actualizado correctamente en SharePoint",
+          });
+        } else {
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesión para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      } else {
+        if (isAuthenticated) {
+          await createEmpresa(newEmpresa);
+          toast({
+            title: "Empresa guardada",
+            description: "La empresa se ha guardado correctamente en SharePoint",
+          });
+        } else {
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesión para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      }
+      setEditingEmpresa(undefined);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al guardar la empresa",
+        variant: "destructive",
+      });
     }
-    setEditingEmpresa(undefined);
   };
 
   const handleEdit = (empresa: Empresa) => {
@@ -62,34 +117,108 @@ export default function Empresas() {
     setModalOpen(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (vista === 'empresas') {
-      setEmpresas(empresas.filter(e => e.id !== id));
+      if (!isAuthenticated) {
+        toast({
+          title: "No autenticado",
+          description: "Por favor, inicia sesión para eliminar empresas",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (confirm("¿Estás seguro de que deseas eliminar esta empresa?")) {
+        try {
+          await deleteEmpresa(id);
+          toast({
+            title: "Empresa eliminada",
+            description: "La empresa se ha eliminado correctamente",
+          });
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: error instanceof Error ? error.message : "Error al eliminar la empresa",
+            variant: "destructive",
+          });
+        }
+      }
     } else if (vista === 'proyectos') {
-      setProyectos(proyectos.filter(p => p.id !== id));
+      if (!isAuthenticated) {
+        toast({
+          title: "No autenticado",
+          description: "Por favor, inicia sesión para eliminar proyectos",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (confirm("¿Estás seguro de que deseas eliminar este proyecto?")) {
+        try {
+          await deleteProyecto(id);
+          toast({
+            title: "Proyecto eliminado",
+            description: "El proyecto se ha eliminado correctamente",
+          });
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: error instanceof Error ? error.message : "Error al eliminar el proyecto",
+            variant: "destructive",
+          });
+        }
+      }
     } else {
-      setColaboradores(colaboradores.filter(c => c.id !== id));
+      if (!isAuthenticated) {
+        toast({
+          title: "No autenticado",
+          description: "Por favor, inicia sesión para eliminar colaboradores",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      if (confirm("¿Estás seguro de que deseas eliminar este colaborador?")) {
+        try {
+          await deleteColaborador(id);
+          toast({
+            title: "Colaborador eliminado",
+            description: "El colaborador se ha eliminado correctamente",
+          });
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: error instanceof Error ? error.message : "Error al eliminar el colaborador",
+            variant: "destructive",
+          });
+        }
+      }
     }
   };
 
-  const handleSaveProyecto = (newProyecto: Omit<Proyecto, 'id' | 'createdAt'>) => {
-    if (editingProyecto) {
-      setProyectos(proyectos.map(p => 
-        p.id === editingProyecto.id 
-          ? { ...newProyecto, id: editingProyecto.id, createdAt: editingProyecto.createdAt } 
-          : p
-      ));
-    } else {
-      setProyectos([
-        { 
-          ...newProyecto, 
-          id: Date.now().toString(), 
-          createdAt: new Date().toISOString().split('T')[0] 
-        }, 
-        ...proyectos
-      ]);
+  const handleSaveProyecto = async (newProyecto: Omit<Proyecto, 'id' | 'createdAt'>) => {
+    try {
+      if (isAuthenticated) {
+        await createProyecto(newProyecto);
+        toast({
+          title: "Proyecto guardado",
+          description: "El proyecto se ha guardado correctamente en SharePoint",
+        });
+      } else {
+        toast({
+          title: "No autenticado",
+          description: "Por favor, inicia sesión para guardar en SharePoint",
+          variant: "destructive",
+        });
+      }
+      setEditingProyecto(undefined);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al guardar el proyecto",
+        variant: "destructive",
+      });
     }
-    setEditingProyecto(undefined);
   };
 
   const handleEditProyecto = (proyecto: Proyecto) => {
@@ -97,24 +226,29 @@ export default function Empresas() {
     setModalOpen(true);
   };
 
-  const handleSaveColaborador = (newColaborador: Omit<Colaborador, 'id' | 'createdAt'>) => {
-    if (editingColaborador) {
-      setColaboradores(colaboradores.map(c => 
-        c.id === editingColaborador.id 
-          ? { ...newColaborador, id: editingColaborador.id, createdAt: editingColaborador.createdAt } 
-          : c
-      ));
-    } else {
-      setColaboradores([
-        { 
-          ...newColaborador, 
-          id: Date.now().toString(), 
-          createdAt: new Date().toISOString().split('T')[0] 
-        }, 
-        ...colaboradores
-      ]);
+  const handleSaveColaborador = async (newColaborador: Omit<Colaborador, 'id' | 'createdAt'>) => {
+    try {
+      if (isAuthenticated) {
+        await createColaborador(newColaborador);
+        toast({
+          title: "Colaborador guardado",
+          description: "El colaborador se ha guardado correctamente en SharePoint",
+        });
+      } else {
+        toast({
+          title: "No autenticado",
+          description: "Por favor, inicia sesión para guardar en SharePoint",
+          variant: "destructive",
+        });
+      }
+      setEditingColaborador(undefined);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al guardar el colaborador",
+        variant: "destructive",
+      });
     }
-    setEditingColaborador(undefined);
   };
 
   const handleEditColaborador = (colaborador: Colaborador) => {

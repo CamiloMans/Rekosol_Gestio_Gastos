@@ -24,14 +24,7 @@ export const msalConfig: Configuration = {
 // Crear instancia de MSAL
 export const msalInstance = new PublicClientApplication(msalConfig);
 
-// Inicializar MSAL
-msalInstance.initialize().then(() => {
-  // Account selection logic is app dependent. Adjust as needed for different use cases.
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length > 0) {
-    msalInstance.setActiveAccount(accounts[0]);
-  }
-});
+// Nota: La inicialización se hace en main.tsx para evitar problemas de timing
 
 // Scopes requeridos para SharePoint
 // Para SPA, no se puede usar .default con scopes específicos

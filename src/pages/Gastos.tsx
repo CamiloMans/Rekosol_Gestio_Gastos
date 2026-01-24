@@ -10,17 +10,48 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { Search, Filter, Pencil, Trash2, FileText, Paperclip } from 'lucide-react';
 import { DocumentoViewer } from '@/components/DocumentoViewer';
-import { useGastos, useEmpresas, useSharePointAuth } from '@/hooks/useSharePoint';
+import { useGastos, useEmpresas, useSharePointAuth, useTiposDocumento } from '@/hooks/useSharePoint';
 import { toast } from '@/hooks/use-toast';
+import { gastosService } from '@/services/sharepointService';
 
 export default function Gastos() {
-  const { isAuthenticated } = useSharePointAuth();
-  const { gastos: gastosSharePoint, loading: loadingGastos, error: errorGastos, createGasto, updateGasto, deleteGasto } = useGastos();
-  const { empresas: empresasSharePoint, loading: loadingEmpresas } = useEmpresas();
+  const { isAuthenticated, isLoading: authLoading } = useSharePointAuth();
   
-  // Usar datos de SharePoint si está autenticado, sino usar datos mock
-  const gastos = isAuthenticated ? gastosSharePoint : gastosData;
-  const empresasData = isAuthenticated ? empresasSharePoint : empresasDataMock;
+  // Los hooks siempre deben llamarse, pero pueden retornar valores vacíos si no está autenticado
+  const gastosHook = useGastos();
+  
+  // TEMPORAL: Revisar el item 14 con attachments para ver cómo se almacenan
+  useEffect(() => {
+    if (isAuthenticated) {
+      gastosService.checkItemWithAttachments("14").catch((error) => {
+        console.error("Error al revisar item 14:", error);
+      });
+    }
+  }, [isAuthenticated]);
+  const empresasHook = useEmpresas();
+  const tiposDocumentoHook = useTiposDocumento();
+  
+  // Extraer valores de forma segura
+  const gastosSharePoint = gastosHook.gastos || [];
+  const loadingGastos = gastosHook.loading || false;
+  const errorGastos = gastosHook.error || null;
+  const empresasSharePoint = empresasHook.empresas || [];
+  const loadingEmpresas = empresasHook.loading || false;
+  const tiposDocumentoSharePoint = tiposDocumentoHook.tiposDocumento || [];
+  
+  // Crear un mapeo de ID a nombre para tipos de documento
+  const tiposDocumentoMap = useMemo(() => {
+    const map: { [key: string]: string } = {};
+    tiposDocumentoSharePoint.forEach(tipo => {
+      map[String(tipo.id)] = tipo.nombre;
+    });
+    return map;
+  }, [tiposDocumentoSharePoint]);
+  
+  // Usar datos de SharePoint si está autenticado y no está cargando, sino usar datos mock
+  // Asegurar que siempre sean arrays para evitar errores
+  const gastos = (isAuthenticated && !authLoading && !loadingGastos) ? gastosSharePoint : gastosData;
+  const empresasData = (isAuthenticated && !authLoading && !loadingEmpresas) ? empresasSharePoint : empresasDataMock;
   
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGasto, setEditingGasto] = useState<Gasto | undefined>();
@@ -44,11 +75,18 @@ export default function Gastos() {
     }
   }, [errorGastos]);
 
-  const filteredGastos = gastos.filter(gasto => {
-    const empresa = empresasData.find(e => e.id === gasto.empresaId);
+  const filteredGastos = useMemo(() => {
+    if (!gastos || gastos.length === 0) return [];
+    
+    return gastos.filter(gasto => {
+      const empresa = empresasData?.find(e => e.id === gasto.empresaId);
+      
+      // Asegurar que numeroDocumento sea string antes de usar includes
+      const numeroDocStr = gasto.numeroDocumento ? String(gasto.numeroDocumento) : '';
+      
     const matchesSearch = 
-      empresa?.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      gasto.numeroDocumento.includes(searchTerm) ||
+        empresa?.razonSocial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        numeroDocStr.includes(searchTerm) ||
       gasto.detalle?.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesCategoria = filterCategoria === 'all' || gasto.categoria === filterCategoria;
@@ -57,23 +95,35 @@ export default function Gastos() {
     
     // Filtrar por mes
     let matchesMes = true;
-    if (filterMes !== 'all') {
+      if (filterMes !== 'all' && gasto.fecha) {
+        try {
       const fechaGasto = new Date(gasto.fecha);
+          if (!isNaN(fechaGasto.getTime())) {
       const mesGasto = `${fechaGasto.getFullYear()}-${String(fechaGasto.getMonth() + 1).padStart(2, '0')}`;
       matchesMes = mesGasto === filterMes;
+          }
+        } catch (e) {
+          // Si hay error al parsear la fecha, no filtrar por mes
+          matchesMes = true;
+        }
     }
 
     return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesMes;
   });
+  }, [gastos, empresasData, searchTerm, filterCategoria, filterEmpresa, filterTipoDoc, filterMes]);
 
   // Obtener meses únicos de los gastos para el filtro
   const mesesDisponibles = useMemo(() => {
+    if (!gastos || gastos.length === 0) return [];
+    
     const mesesSet = new Set<string>();
     gastos.forEach(gasto => {
+      if (gasto.fecha) {
       const fecha = new Date(gasto.fecha);
       const mesKey = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
       const mesLabel = fecha.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
       mesesSet.add(`${mesKey}|${mesLabel}`);
+      }
     });
     return Array.from(mesesSet)
       .map(m => {
@@ -85,11 +135,14 @@ export default function Gastos() {
 
   const handleSaveGasto = async (newGasto: Omit<Gasto, 'id'>) => {
     try {
-      if (editingGasto) {
-        if (isAuthenticated) {
-          await updateGasto(editingGasto.id, newGasto);
+    if (editingGasto) {
+        if (isAuthenticated && !authLoading) {
+          await gastosHook.updateGasto(editingGasto.id, newGasto);
+          toast({
+            title: "Gasto actualizado",
+            description: "El gasto se ha actualizado correctamente en SharePoint",
+          });
         } else {
-          // Fallback a datos mock si no está autenticado
           toast({
             title: "No autenticado",
             description: "Por favor, inicia sesión para guardar en SharePoint",
@@ -97,21 +150,21 @@ export default function Gastos() {
           });
         }
       } else {
-        if (isAuthenticated) {
-          await createGasto(newGasto);
+        if (isAuthenticated && !authLoading) {
+          await gastosHook.createGasto(newGasto);
           toast({
             title: "Gasto guardado",
             description: "El gasto se ha guardado correctamente en SharePoint",
           });
-        } else {
+    } else {
           toast({
             title: "No autenticado",
             description: "Por favor, inicia sesión para guardar en SharePoint",
             variant: "destructive",
           });
         }
-      }
-      setEditingGasto(undefined);
+    }
+    setEditingGasto(undefined);
     } catch (error) {
       toast({
         title: "Error",
@@ -127,7 +180,7 @@ export default function Gastos() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!isAuthenticated) {
+    if (!isAuthenticated || authLoading) {
       toast({
         title: "No autenticado",
         description: "Por favor, inicia sesión para eliminar gastos",
@@ -138,7 +191,7 @@ export default function Gastos() {
     
     if (confirm("¿Estás seguro de que deseas eliminar este gasto?")) {
       try {
-        await deleteGasto(id);
+        await gastosHook.deleteGasto(id);
         toast({
           title: "Gasto eliminado",
           description: "El gasto se ha eliminado correctamente",
@@ -257,8 +310,24 @@ export default function Gastos() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredGastos.map((gasto) => {
-              const empresa = empresasData.find(e => e.id === gasto.empresaId);
+            {loadingGastos ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8">
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                    <span className="text-muted-foreground">Cargando gastos...</span>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : filteredGastos.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  No se encontraron gastos
+                </TableCell>
+              </TableRow>
+            ) : (
+              filteredGastos.map((gasto) => {
+                const empresa = empresasData?.find(e => e.id === gasto.empresaId);
               const colaborador = gasto.colaboradorId ? colaboradoresData.find(c => c.id === gasto.colaboradorId) : null;
               return (
                 <TableRow key={gasto.id} className="animate-fade-in">
@@ -282,7 +351,7 @@ export default function Gastos() {
                   <TableCell>
                     {gasto.archivosAdjuntos && gasto.archivosAdjuntos.length > 0 ? (
                       <div className="space-y-1">
-                        <p className="font-medium text-sm">{gasto.tipoDocumento}</p>
+                        <p className="font-medium text-sm">{tiposDocumentoMap[String(gasto.tipoDocumento)] || gasto.tipoDocumento}</p>
                         <p className="text-xs text-muted-foreground">#{gasto.numeroDocumento}</p>
                         <div className="flex flex-wrap gap-1 mt-2">
                           {gasto.archivosAdjuntos.map((archivo, index) => (
@@ -304,7 +373,7 @@ export default function Gastos() {
                       </div>
                     ) : (
                       <div>
-                        <p className="font-medium">{gasto.tipoDocumento}</p>
+                        <p className="font-medium">{tiposDocumentoMap[String(gasto.tipoDocumento)] || gasto.tipoDocumento}</p>
                         <p className="text-sm text-muted-foreground">#{gasto.numeroDocumento}</p>
                         <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
                           <FileText size={12} />
@@ -328,7 +397,8 @@ export default function Gastos() {
                   </TableCell>
                 </TableRow>
               );
-            })}
+            })
+            )}
           </TableBody>
         </Table>
         </div>

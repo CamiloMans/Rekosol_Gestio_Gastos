@@ -1,6 +1,8 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { X, Download, File } from 'lucide-react';
+import { X, Download, File, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { getSharePointRestToken } from '@/lib/sharepointClient';
 
 interface DocumentoViewerProps {
   open: boolean;
@@ -9,16 +11,128 @@ interface DocumentoViewerProps {
 }
 
 export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps) {
+  // TODOS los hooks DEBEN llamarse siempre, antes de cualquier return condicional
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Cargar el archivo con autenticación cuando se abre el viewer
+  useEffect(() => {
+    if (open && archivo) {
+      loadFileWithAuth();
+    } else {
+      // Limpiar el blob URL cuando se cierra
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+        setBlobUrl(null);
+      }
+    }
+
+    return () => {
+      // Limpiar el blob URL al desmontar o cuando cambia el archivo
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, archivo?.url]);
+
+  // Ahora podemos hacer el return condicional después de TODOS los hooks
   if (!archivo) return null;
 
   const esImagen = archivo.tipo.startsWith('image/');
   const esPDF = archivo.tipo === 'application/pdf';
 
-  const handleDownload = () => {
-    const link = document.createElement('a');
-    link.href = archivo.url;
-    link.download = archivo.nombre;
-    link.click();
+  const loadFileWithAuth = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      console.log('📎 Iniciando carga de archivo:', {
+        nombre: archivo.nombre,
+        url: archivo.url,
+        tipo: archivo.tipo,
+      });
+
+      // Obtener token de SharePoint REST API
+      const token = await getSharePointRestToken();
+      console.log('📎 Token obtenido exitosamente');
+
+      // Descargar el archivo con autenticación
+      console.log('📎 Descargando archivo desde:', archivo.url);
+      const response = await fetch(archivo.url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      console.log('📎 Respuesta recibida:', {
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get('content-type'),
+        ok: response.ok,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Error en la respuesta:', errorText);
+        throw new Error(`Error al cargar el archivo: ${response.status} ${response.statusText}`);
+      }
+
+      // Convertir la respuesta a blob
+      const blob = await response.blob();
+      console.log('📎 Blob creado:', {
+        size: blob.size,
+        type: blob.type,
+      });
+
+      // Crear una URL blob para mostrar el archivo
+      const url = URL.createObjectURL(blob);
+      console.log('✅ Blob URL creado:', url);
+      setBlobUrl(url);
+    } catch (err: any) {
+      console.error('❌ Error al cargar archivo:', err);
+      setError(err.message || 'No se pudo cargar el archivo');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = async () => {
+    if (blobUrl) {
+      // Si ya tenemos el blob URL, usarlo directamente
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = archivo.nombre;
+      link.click();
+    } else {
+      // Si no, intentar descargar con autenticación
+      try {
+        const token = await getSharePointRestToken();
+        const response = await fetch(archivo.url, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`Error al descargar el archivo: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = archivo.nombre;
+        link.click();
+        URL.revokeObjectURL(url);
+      } catch (err: any) {
+        console.error('Error al descargar archivo:', err);
+        alert('No se pudo descargar el archivo. Por favor, intenta nuevamente.');
+      }
+    }
   };
 
   return (
@@ -49,15 +163,36 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
           </div>
         </DialogHeader>
         <div className="mt-4 max-h-[calc(90vh-120px)] overflow-auto flex items-center justify-center bg-muted/30 rounded-lg p-4">
-          {esImagen ? (
+          {loading ? (
+            <div className="flex flex-col items-center justify-center gap-4 py-8">
+              <Loader2 size={48} className="text-muted-foreground animate-spin" />
+              <p className="text-muted-foreground">Cargando archivo...</p>
+            </div>
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center gap-4 py-8">
+              <File size={64} className="text-muted-foreground" />
+              <p className="text-muted-foreground">{error}</p>
+              <Button onClick={handleDownload} variant="outline">
+                <Download size={18} className="mr-2" />
+                Intentar descargar
+              </Button>
+            </div>
+          ) : blobUrl && esImagen ? (
             <img
-              src={archivo.url}
+              src={blobUrl}
               alt={archivo.nombre}
               className="max-w-full max-h-full object-contain"
             />
-          ) : esPDF ? (
+          ) : blobUrl && esPDF ? (
             <iframe
-              src={archivo.url}
+              src={blobUrl}
+              className="w-full h-[70vh] border-0"
+              title={archivo.nombre}
+            />
+          ) : blobUrl ? (
+            // Para otros tipos de archivo, intentar mostrar en iframe si es posible
+            <iframe
+              src={blobUrl}
               className="w-full h-[70vh] border-0"
               title={archivo.nombre}
             />

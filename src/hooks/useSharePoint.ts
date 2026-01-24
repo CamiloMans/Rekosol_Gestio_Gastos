@@ -7,6 +7,10 @@ import {
   empresasService,
   proyectosService,
   colaboradoresService,
+  categoriasService,
+  tiposDocumentoService,
+  type Categoria,
+  type TipoDocumento,
 } from "@/services/sharepointService";
 
 export function useSharePointAuth() {
@@ -341,6 +345,82 @@ export function useColaboradores() {
     loadColaboradores,
     createColaborador,
     deleteColaborador,
+  };
+}
+
+// Hook para gestionar categorías desde SharePoint
+export function useCategorias() {
+  const { isAuthenticated } = useSharePointAuth();
+  const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const loadCategorias = async () => {
+    if (!isAuthenticated) return;
+    
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await categoriasService.getAll();
+      setCategorias(data);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error desconocido"));
+      console.error("Error al cargar categorías:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadCategorias();
+    }
+  }, [isAuthenticated]);
+
+  return {
+    categorias,
+    loading,
+    error,
+    loadCategorias,
+  };
+}
+
+// Hook para gestionar tipos de documento desde SharePoint
+export function useTiposDocumento() {
+  const { isAuthenticated } = useSharePointAuth();
+  const [tiposDocumento, setTiposDocumento] = useState<TipoDocumento[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const loadTiposDocumento = async () => {
+    if (!isAuthenticated) return;
+    
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await tiposDocumentoService.getAll();
+      setTiposDocumento(data);
+    } catch (err) {
+      // Si la lista no existe, usar array vacío en lugar de mostrar error
+      console.warn("No se pudo cargar tipos de documento desde SharePoint:", err);
+      setTiposDocumento([]);
+      setError(null); // No mostrar error si la lista no existe
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadTiposDocumento();
+    }
+  }, [isAuthenticated]);
+
+  return {
+    tiposDocumento,
+    loading,
+    error,
+    loadTiposDocumento,
   };
 }
 

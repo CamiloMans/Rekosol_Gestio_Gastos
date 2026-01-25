@@ -3,30 +3,32 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Proyecto } from '@/data/mockData';
 import { Save } from 'lucide-react';
+import type { Categoria } from '@/services/sharepointService';
 
-interface ProyectoModalProps {
+interface CategoriaModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (proyecto: Omit<Proyecto, 'id' | 'createdAt'>) => void;
-  proyecto?: Proyecto;
+  onSave: (categoria: Omit<Categoria, 'id'>) => void;
+  categoria?: Categoria;
 }
 
-export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModalProps) {
+export function CategoriaModal({ open, onClose, onSave, categoria }: CategoriaModalProps) {
   const [nombre, setNombre] = useState('');
 
   useEffect(() => {
-    if (proyecto) {
-      setNombre(proyecto.nombre);
+    if (categoria) {
+      setNombre(categoria.nombre);
     } else {
       setNombre('');
     }
-  }, [proyecto, open]);
+  }, [categoria, open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ nombre });
+    onSave({ 
+      nombre,
+    });
     onClose();
   };
 
@@ -35,15 +37,15 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
       <DialogContent className="sm:max-w-md bg-card">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
-            {proyecto ? 'Editar Proyecto' : 'Nuevo Proyecto'}
+            {categoria ? 'Editar Categoría' : 'Nueva Categoría'}
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="space-y-2">
-            <Label htmlFor="nombre">Nombre del Proyecto *</Label>
+            <Label htmlFor="nombre">Nombre de la Categoría *</Label>
             <Input
               id="nombre"
-              placeholder="Nombre del proyecto"
+              placeholder="Nombre de la categoría"
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
               required
@@ -64,10 +66,4 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
     </Dialog>
   );
 }
-
-
-
-
-
-
 

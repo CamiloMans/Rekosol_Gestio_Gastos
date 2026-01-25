@@ -1,47 +1,126 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { StatCard } from '@/components/StatCard';
 import { CategoryBadge } from '@/components/CategoryBadge';
-import { gastosData, empresasData, categorias, monthlyData, formatCurrency } from '@/data/mockData';
+import { gastosData, empresasData as empresasDataMock, proyectosData, categorias as categoriasMock, formatCurrency } from '@/data/mockData';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
-import { TrendingUp, TrendingDown, Calendar, Receipt, DollarSign } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, Receipt, DollarSign, FolderKanban } from 'lucide-react';
+import { useGastos, useCategorias, useEmpresas, useProyectos, useSharePointAuth } from '@/hooks/useSharePoint';
 
 export default function Reportes() {
-  const [periodo, setPeriodo] = useState<'mensual' | 'anual'>('anual');
-  const [year, setYear] = useState('2025');
-  const [mes, setMes] = useState('all');
-
-  const totalAnual = monthlyData.reduce((sum, m) => sum + m.total, 0);
+  const { isAuthenticated } = useSharePointAuth();
+  const { gastos: gastosSharePoint } = useGastos();
+  const { categorias: categoriasSharePoint } = useCategorias();
+  const { empresas: empresasSharePoint } = useEmpresas();
+  const { proyectos: proyectosSharePoint } = useProyectos();
   
-  // Filtrar gastos según periodo y mes seleccionado
-  const gastosFiltrados = periodo === 'anual'
-    ? gastosData.filter(g => {
-        const fechaGasto = new Date(g.fecha);
-        return fechaGasto.getFullYear().toString() === year;
-      })
-    : mes !== 'all'
-    ? gastosData.filter(g => {
-        const fechaGasto = new Date(g.fecha);
-        const añoGasto = fechaGasto.getFullYear().toString();
-        const mesGasto = String(fechaGasto.getMonth() + 1).padStart(2, '0');
-        return añoGasto === year && mesGasto === mes;
-      })
-    : gastosData.filter(g => {
-        const fechaGasto = new Date(g.fecha);
-        return fechaGasto.getFullYear().toString() === year;
-      });
+  // Usar datos de SharePoint si está autenticado, sino usar datos mock
+  const gastos = isAuthenticated ? gastosSharePoint : gastosData;
+  const empresas = isAuthenticated ? empresasSharePoint : empresasDataMock;
+  const proyectos = isAuthenticated ? proyectosSharePoint : proyectosData;
+  const categorias = isAuthenticated && categoriasSharePoint.length > 0 
+    ? categoriasSharePoint.map(cat => ({
+        id: cat.id,
+        nombre: cat.nombre,
+        color: cat.color || `bg-category-${cat.id}`,
+      }))
+    : categoriasMock;
+
+  const [periodo, setPeriodo] = useState<'mensual' | 'anual'>('anual');
+  const [year, setYear] = useState('2026');
+  const [mes, setMes] = useState('all');
+  const [proyectoFiltro, setProyectoFiltro] = useState<string>('all');
+
+  // Filtrar gastos según periodo, mes y proyecto seleccionado
+  const gastosFiltrados = useMemo(() => {
+    let gastosFiltradosPorFecha = periodo === 'anual'
+      ? gastos.filter(g => {
+          const fechaGasto = new Date(g.fecha);
+          return fechaGasto.getFullYear().toString() === year;
+        })
+      : mes !== 'all'
+      ? gastos.filter(g => {
+          const fechaGasto = new Date(g.fecha);
+          const añoGasto = fechaGasto.getFullYear().toString();
+          const mesGasto = String(fechaGasto.getMonth() + 1).padStart(2, '0');
+          return añoGasto === year && mesGasto === mes;
+        })
+      : gastos.filter(g => {
+          const fechaGasto = new Date(g.fecha);
+          return fechaGasto.getFullYear().toString() === year;
+        });
+    
+    // Filtrar por proyecto si está seleccionado
+    if (proyectoFiltro !== 'all') {
+      gastosFiltradosPorFecha = gastosFiltradosPorFecha.filter(g => 
+        String(g.proyectoId || '') === String(proyectoFiltro)
+      );
+    }
+    
+    return gastosFiltradosPorFecha;
+  }, [gastos, periodo, year, mes, proyectoFiltro]);
+
+  // Calcular datos mensuales basados en los gastos reales del año seleccionado y proyecto
+  const monthlyDataCalculated = useMemo(() => {
+    // Usar los gastos filtrados (ya incluyen filtro de proyecto)
+    const gastosAnuales = gastosFiltrados.filter(g => {
+      const fechaGasto = new Date(g.fecha);
+      return fechaGasto.getFullYear().toString() === year;
+    });
+
+    // Agrupar por mes
+    const mesesMap: Record<string, number> = {};
+    const mesesAbrev = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    
+    gastosAnuales.forEach(gasto => {
+      const fecha = new Date(gasto.fecha);
+      const mesIndex = fecha.getMonth();
+      const mesAbrev = mesesAbrev[mesIndex];
+      
+      if (!mesesMap[mesAbrev]) {
+        mesesMap[mesAbrev] = 0;
+      }
+      mesesMap[mesAbrev] += gasto.monto;
+    });
+
+    // Crear array con todos los meses, incluso si no tienen gastos
+    return mesesAbrev.map(mesAbrev => ({
+      mes: mesAbrev,
+      total: mesesMap[mesAbrev] || 0,
+    }));
+  }, [gastosFiltrados, year]);
+
+  // Calcular total anual basado en los gastos reales
+  const totalAnual = useMemo(() => {
+    return monthlyDataCalculated.reduce((sum, m) => sum + m.total, 0);
+  }, [monthlyDataCalculated]);
   
   // Calcular total según periodo y mes seleccionado
   const totalDisplay = periodo === 'anual' 
     ? totalAnual
     : gastosFiltrados.reduce((sum, g) => sum + g.monto, 0);
   
-  const promedioMensual = totalAnual / 12;
-  const mesMayorGasto = monthlyData.reduce((max, m) => m.total > max.total ? m : max, monthlyData[0]);
-  const mesMenorGasto = monthlyData.reduce((min, m) => m.total < min.total ? m : min, monthlyData[0]);
+  // Calcular promedio mensual basado en los meses que tienen gastos
+  const mesesConGastos = monthlyDataCalculated.filter(m => m.total > 0);
+  const promedioMensual = mesesConGastos.length > 0 
+    ? totalAnual / mesesConGastos.length 
+    : 0;
+  
+  // Encontrar mes mayor y menor gasto
+  const mesMayorGasto = useMemo(() => {
+    if (monthlyDataCalculated.length === 0) return { mes: 'ene', total: 0 };
+    return monthlyDataCalculated.reduce((max, m) => m.total > max.total ? m : max, monthlyDataCalculated[0]);
+  }, [monthlyDataCalculated]);
+
+  const mesMenorGasto = useMemo(() => {
+    if (monthlyDataCalculated.length === 0) return { mes: 'ene', total: 0 };
+    const mesesConGastos = monthlyDataCalculated.filter(m => m.total > 0);
+    if (mesesConGastos.length === 0) return { mes: 'ene', total: 0 };
+    return mesesConGastos.reduce((min, m) => m.total < min.total ? m : min, mesesConGastos[0]);
+  }, [monthlyDataCalculated]);
   
   // Mapeo de meses abreviados a nombres completos
   const mesesNombres: Record<string, string> = {
@@ -60,28 +139,180 @@ export default function Reportes() {
   };
 
   // Categorías del periodo
-  const categoriasTotals = categorias.map(cat => {
-    const total = gastosFiltrados.filter(g => g.categoria === cat.id).reduce((sum, g) => sum + g.monto, 0);
-    return { ...cat, total };
-  }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
+  const categoriasTotals = useMemo(() => {
+    if (!gastosFiltrados || gastosFiltrados.length === 0) return [];
+    
+    return categorias.map(cat => {
+      // Comparar como strings para asegurar coincidencia
+      const total = gastosFiltrados
+        .filter(g => String(g.categoria) === String(cat.id))
+        .reduce((sum, g) => sum + g.monto, 0);
+      return { ...cat, total };
+    }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
+  }, [categorias, gastosFiltrados]);
 
   const totalCategorias = categoriasTotals.reduce((sum, c) => sum + c.total, 0);
 
   // Empresas del periodo
-  const empresasTotals = empresasData.map(emp => {
-    const total = gastosFiltrados.filter(g => g.empresaId === emp.id).reduce((sum, g) => sum + g.monto, 0);
-    return { ...emp, total };
-  }).filter(e => e.total > 0).sort((a, b) => b.total - a.total);
+  const empresasTotals = useMemo(() => {
+    if (!gastosFiltrados || gastosFiltrados.length === 0) return [];
+    
+    return empresas.map(emp => {
+      // Comparar como strings para asegurar coincidencia
+      const total = gastosFiltrados
+        .filter(g => String(g.empresaId) === String(emp.id))
+        .reduce((sum, g) => sum + g.monto, 0);
+      return { ...emp, total };
+    }).filter(e => e.total > 0).sort((a, b) => b.total - a.total);
+  }, [empresas, gastosFiltrados]);
 
   const totalEmpresas = empresasTotals.reduce((sum, e) => sum + e.total, 0);
 
-  const categoryColors: Record<string, string> = {
-    'sueldos': '#22c55e',
-    'honorarios': '#f97316',
-    'mantenimiento': '#ef4444',
-    'gastos-generales': '#64748b',
-    'materiales': '#3b82f6',
+  // Función para oscurecer un color (reducir luminosidad en HSL)
+  const darkenColor = (color: string, darkenAmount: number = 0.3): string => {
+    // Si es un color hexadecimal
+    if (color.startsWith('#')) {
+      // Convertir hex a RGB
+      const r = parseInt(color.slice(1, 3), 16);
+      const g = parseInt(color.slice(3, 5), 16);
+      const b = parseInt(color.slice(5, 7), 16);
+      
+      // Convertir RGB a HSL
+      const rNorm = r / 255;
+      const gNorm = g / 255;
+      const bNorm = b / 255;
+      
+      const max = Math.max(rNorm, gNorm, bNorm);
+      const min = Math.min(rNorm, gNorm, bNorm);
+      let h = 0, s = 0, l = (max + min) / 2;
+      
+      if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+          case rNorm: h = ((gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0)) / 6; break;
+          case gNorm: h = ((bNorm - rNorm) / d + 2) / 6; break;
+          case bNorm: h = ((rNorm - gNorm) / d + 4) / 6; break;
+        }
+      }
+      
+      // Reducir luminosidad (de ~80% a ~50-55%)
+      l = Math.max(0.45, Math.min(0.6, l - darkenAmount));
+      
+      // Convertir HSL a RGB
+      const c = (1 - Math.abs(2 * l - 1)) * s;
+      const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+      const m = l - c / 2;
+      
+      let rNew = 0, gNew = 0, bNew = 0;
+      if (h < 1/6) { rNew = c; gNew = x; bNew = 0; }
+      else if (h < 2/6) { rNew = x; gNew = c; bNew = 0; }
+      else if (h < 3/6) { rNew = 0; gNew = c; bNew = x; }
+      else if (h < 4/6) { rNew = 0; gNew = x; bNew = c; }
+      else if (h < 5/6) { rNew = x; gNew = 0; bNew = c; }
+      else { rNew = c; gNew = 0; bNew = x; }
+      
+      rNew = Math.round((rNew + m) * 255);
+      gNew = Math.round((gNew + m) * 255);
+      bNew = Math.round((bNew + m) * 255);
+      
+      return `rgb(${rNew}, ${gNew}, ${bNew})`;
+    }
+    
+    // Si es HSL, reducir la luminosidad
+    if (color.startsWith('hsl')) {
+      const match = color.match(/hsl\((\d+),\s*(\d+)%,\s*(\d+)%\)/);
+      if (match) {
+        const h = parseInt(match[1]);
+        const s = parseInt(match[2]);
+        let l = parseInt(match[3]);
+        // Reducir luminosidad de 80% a ~50-55%
+        l = Math.max(45, Math.min(60, l - (l * darkenAmount)));
+        return `hsl(${h}, ${s}%, ${l}%)`;
+      }
+    }
+    
+    // Si es RGB, convertir a HSL y oscurecer
+    if (color.startsWith('rgb')) {
+      const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
+      if (match) {
+        const r = parseInt(match[1]) / 255;
+        const g = parseInt(match[2]) / 255;
+        const b = parseInt(match[3]) / 255;
+        
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        let h = 0, s = 0, l = (max + min) / 2;
+        
+        if (max !== min) {
+          const d = max - min;
+          s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+          switch (max) {
+            case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+            case g: h = ((b - r) / d + 2) / 6; break;
+            case b: h = ((r - g) / d + 4) / 6; break;
+          }
+        }
+        
+        l = Math.max(0.45, Math.min(0.6, l - darkenAmount));
+        s = Math.max(0, Math.min(1, s));
+        
+        return `hsl(${Math.round(h * 360)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
+      }
+    }
+    
+    return color;
   };
+
+  // Mapeo de IDs de categorías a colores oscuros para las barras de progreso
+  const categoryColors: Record<string, string> = useMemo(() => {
+    const colors: Record<string, string> = {};
+    categorias.forEach(cat => {
+      let baseColor = '';
+      
+      // Si la categoría tiene un color guardado (hex), usarlo
+      if (cat.color?.startsWith('#')) {
+        baseColor = cat.color;
+      } else if (cat.color?.startsWith('rgb') || cat.color?.startsWith('hsl')) {
+        baseColor = cat.color;
+      } else {
+        // Si tiene una clase Tailwind, mapear a color
+        const tailwindToColor: Record<string, string> = {
+          'bg-pink-200': '#FFB3BA',
+          'bg-orange-200': '#FFDFBA',
+          'bg-yellow-200': '#FFFFBA',
+          'bg-green-200': '#BAFFC9',
+          'bg-blue-200': '#BAE1FF',
+          'bg-purple-200': '#E0BAFF',
+          'bg-red-200': '#FFCCCB',
+          'bg-cyan-200': '#B0E0E6',
+          'bg-orange-100': '#FFDAB9',
+          'bg-lime-200': '#F0E68C',
+          'bg-sky-200': '#ADD8E6',
+          'bg-fuchsia-200': '#DDA0DD',
+          'bg-rose-300': '#FA8072',
+          'bg-emerald-200': '#7FFFD4',
+          'bg-stone-200': '#F5F5DC',
+          'bg-violet-200': '#E6E6FA',
+        };
+        
+        const categoryId = cat.color?.replace('bg-category-', '') || cat.id;
+        const categoryColorMap: Record<string, string> = {
+          'gastos-generales': 'hsl(210, 80%, 80%)',
+          'sueldos': 'hsl(150, 70%, 80%)',
+          'honorarios': 'hsl(30, 90%, 75%)',
+          'mantenimiento': 'hsl(350, 75%, 80%)',
+          'materiales': 'hsl(260, 75%, 80%)',
+        };
+        
+        baseColor = tailwindToColor[cat.color || ''] || categoryColorMap[categoryId] || 'hsl(213, 94%, 54%)';
+      }
+      
+      // Oscurecer el color para las barras de progreso
+      colors[cat.id] = darkenColor(baseColor, 0.2);
+    });
+    return colors;
+  }, [categorias]);
 
   return (
     <Layout>
@@ -125,8 +356,21 @@ export default function Reportes() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-card">
-              <SelectItem value="2025">2025</SelectItem>
-              <SelectItem value="2024">2024</SelectItem>
+              <SelectItem value="2026">2026</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={proyectoFiltro} onValueChange={setProyectoFiltro}>
+            <SelectTrigger className="w-full sm:w-48 bg-card">
+              <FolderKanban size={16} className="mr-2" />
+              <SelectValue placeholder="Proyecto" />
+            </SelectTrigger>
+            <SelectContent className="bg-card">
+              <SelectItem value="all">Todos los proyectos</SelectItem>
+              {proyectos.map((proyecto) => (
+                <SelectItem key={proyecto.id} value={proyecto.id}>
+                  {proyecto.nombre}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -168,7 +412,7 @@ export default function Reportes() {
         </div>
         <div className="h-64 sm:h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={monthlyData}>
+            <AreaChart data={monthlyDataCalculated}>
               <defs>
                 <linearGradient id="colorTotal" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="hsl(213, 94%, 54%)" stopOpacity={0.3}/>

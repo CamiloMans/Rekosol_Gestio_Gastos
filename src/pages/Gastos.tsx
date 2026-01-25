@@ -3,14 +3,15 @@ import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { CategoryBadge } from '@/components/CategoryBadge';
 import { GastoModal } from '@/components/GastoModal';
-import { gastosData, empresasData as empresasDataMock, categorias, colaboradoresData, formatCurrency, formatDate, Gasto } from '@/data/mockData';
+import { gastosData, empresasData as empresasDataMock, categorias, colaboradoresData as colaboradoresDataMock, formatCurrency, formatDate, Gasto } from '@/data/mockData';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Search, Filter, Pencil, Trash2, FileText, Paperclip } from 'lucide-react';
 import { DocumentoViewer } from '@/components/DocumentoViewer';
-import { useGastos, useEmpresas, useSharePointAuth, useTiposDocumento } from '@/hooks/useSharePoint';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { useGastos, useEmpresas, useColaboradores, useSharePointAuth, useTiposDocumento } from '@/hooks/useSharePoint';
 import { toast } from '@/hooks/use-toast';
 import { gastosService } from '@/services/sharepointService';
 
@@ -30,6 +31,7 @@ export default function Gastos() {
   }, [isAuthenticated]);
   const empresasHook = useEmpresas();
   const tiposDocumentoHook = useTiposDocumento();
+  const colaboradoresHook = useColaboradores();
   
   // Extraer valores de forma segura
   const gastosSharePoint = gastosHook.gastos || [];
@@ -38,6 +40,7 @@ export default function Gastos() {
   const empresasSharePoint = empresasHook.empresas || [];
   const loadingEmpresas = empresasHook.loading || false;
   const tiposDocumentoSharePoint = tiposDocumentoHook.tiposDocumento || [];
+  const colaboradoresSharePoint = colaboradoresHook.colaboradores || [];
   
   // Crear un mapeo de ID a nombre para tipos de documento
   const tiposDocumentoMap = useMemo(() => {
@@ -52,6 +55,7 @@ export default function Gastos() {
   // Asegurar que siempre sean arrays para evitar errores
   const gastos = (isAuthenticated && !authLoading && !loadingGastos) ? gastosSharePoint : gastosData;
   const empresasData = (isAuthenticated && !authLoading && !loadingEmpresas) ? empresasSharePoint : empresasDataMock;
+  const colaboradoresData = (isAuthenticated && !authLoading) ? colaboradoresSharePoint : colaboradoresDataMock;
   
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGasto, setEditingGasto] = useState<Gasto | undefined>();
@@ -59,10 +63,13 @@ export default function Gastos() {
   const [filterCategoria, setFilterCategoria] = useState('all');
   const [filterEmpresa, setFilterEmpresa] = useState('all');
   const [filterTipoDoc, setFilterTipoDoc] = useState('all');
+  const [filterColaborador, setFilterColaborador] = useState('all');
   const [filterMes, setFilterMes] = useState('all');
   const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
   const [documentoViewerOpen, setDocumentoViewerOpen] = useState(false);
   const [documentoSeleccionado, setDocumentoSeleccionado] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [gastoAEliminar, setGastoAEliminar] = useState<string | null>(null);
 
   // Mostrar errores
   useEffect(() => {
@@ -92,6 +99,7 @@ export default function Gastos() {
     const matchesCategoria = filterCategoria === 'all' || gasto.categoria === filterCategoria;
     const matchesEmpresa = filterEmpresa === 'all' || gasto.empresaId === filterEmpresa;
     const matchesTipoDoc = filterTipoDoc === 'all' || gasto.tipoDocumento === filterTipoDoc;
+    const matchesColaborador = filterColaborador === 'all' || String(gasto.colaboradorId || '') === String(filterColaborador);
     
     // Filtrar por mes
     let matchesMes = true;
@@ -108,7 +116,7 @@ export default function Gastos() {
         }
     }
 
-    return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesMes;
+    return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesColaborador && matchesMes;
   });
   }, [gastos, empresasData, searchTerm, filterCategoria, filterEmpresa, filterTipoDoc, filterMes]);
 
@@ -141,6 +149,7 @@ export default function Gastos() {
           toast({
             title: "Gasto actualizado",
             description: "El gasto se ha actualizado correctamente en SharePoint",
+            variant: "success",
           });
         } else {
           toast({
@@ -155,6 +164,7 @@ export default function Gastos() {
           toast({
             title: "Gasto guardado",
             description: "El gasto se ha guardado correctamente en SharePoint",
+            variant: "success",
           });
     } else {
           toast({
@@ -179,7 +189,7 @@ export default function Gastos() {
     setModalOpen(true);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!isAuthenticated || authLoading) {
       toast({
         title: "No autenticado",
@@ -189,20 +199,28 @@ export default function Gastos() {
       return;
     }
     
-    if (confirm("¿Estás seguro de que deseas eliminar este gasto?")) {
-      try {
-        await gastosHook.deleteGasto(id);
-        toast({
-          title: "Gasto eliminado",
-          description: "El gasto se ha eliminado correctamente",
-        });
-      } catch (error) {
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Error al eliminar el gasto",
-          variant: "destructive",
-        });
-      }
+    setGastoAEliminar(id);
+    setConfirmDialogOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!gastoAEliminar) return;
+    
+    try {
+      await gastosHook.deleteGasto(gastoAEliminar);
+      toast({
+        title: "Gasto eliminado",
+        description: "El gasto se ha eliminado correctamente",
+        variant: "success",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al eliminar el gasto",
+        variant: "destructive",
+      });
+    } finally {
+      setGastoAEliminar(null);
     }
   };
 
@@ -213,7 +231,7 @@ export default function Gastos() {
         subtitle={
           loadingGastos 
             ? "Cargando gastos..." 
-            : `${filteredGastos.length} gastos encontrados${isAuthenticated ? ' (SharePoint)' : ' (Datos locales)'}`
+            : `${filteredGastos.length} gastos encontrados`
         }
         action={{ label: 'Nuevo Gasto', onClick: () => setModalOpen(true) }}
       />
@@ -243,7 +261,7 @@ export default function Gastos() {
           </button>
         </div>
         {filtrosAbiertos && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2 sm:gap-3 animate-fade-in">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2 sm:gap-3 animate-fade-in">
           <Select value={filterCategoria} onValueChange={setFilterCategoria}>
             <SelectTrigger className="bg-card">
               <SelectValue placeholder="Todas las categorías" />
@@ -274,9 +292,25 @@ export default function Gastos() {
             </SelectTrigger>
             <SelectContent className="bg-card">
               <SelectItem value="all">Todos los tipos</SelectItem>
-              <SelectItem value="Factura">Factura</SelectItem>
-              <SelectItem value="Boleta">Boleta</SelectItem>
-              <SelectItem value="Orden de Compra">Orden de Compra</SelectItem>
+              {tiposDocumentoSharePoint.map((tipo) => (
+                <SelectItem key={tipo.id} value={String(tipo.id)}>
+                  {tipo.nombre}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={filterColaborador} onValueChange={setFilterColaborador}>
+            <SelectTrigger className="bg-card">
+              <SelectValue placeholder="Todos los colaboradores" />
+            </SelectTrigger>
+            <SelectContent className="bg-card">
+              <SelectItem value="all">Todos los colaboradores</SelectItem>
+              {colaboradoresData.map((colaborador) => (
+                <SelectItem key={colaborador.id} value={colaborador.id}>
+                  {colaborador.nombre}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -333,10 +367,10 @@ export default function Gastos() {
                 <TableRow key={gasto.id} className="animate-fade-in">
                   <TableCell>
                     <div>
-                      {colaborador && (
-                        <p className="font-medium text-sm mb-1">{colaborador.nombre}</p>
-                      )}
                       <p className="text-muted-foreground">{formatDate(gasto.fecha)}</p>
+                      {colaborador && (
+                        <p className="font-medium text-sm mt-1">{colaborador.nombre}</p>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>
@@ -421,6 +455,16 @@ export default function Gastos() {
           setDocumentoSeleccionado(undefined);
         }}
         archivo={documentoSeleccionado}
+      />
+      
+      <ConfirmDialog
+        open={confirmDialogOpen}
+        onOpenChange={setConfirmDialogOpen}
+        title="Eliminar gasto"
+        description="¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer."
+        onConfirm={confirmDelete}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
       />
     </Layout>
   );

@@ -58,12 +58,13 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
       const token = await getSharePointRestToken();
       console.log('📎 Token obtenido exitosamente');
 
-      // Descargar el archivo con autenticación
-      console.log('📎 Descargando archivo desde:', archivo.url);
+      // Descargar el archivo usando el endpoint REST API de SharePoint
+      console.log('📎 Descargando archivo desde endpoint REST API:', archivo.url);
       const response = await fetch(archivo.url, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
+          'Accept': '*/*', // Aceptar cualquier tipo de contenido para archivos binarios
         },
       });
 
@@ -87,8 +88,29 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
         type: blob.type,
       });
 
+      // Si el tipo del blob es genérico, intentar inferirlo del nombre del archivo
+      let finalBlob = blob;
+      if (blob.type === 'application/octet-stream' || !blob.type) {
+        const extension = archivo.nombre.split('.').pop()?.toLowerCase();
+        const mimeTypes: { [key: string]: string } = {
+          'pdf': 'application/pdf',
+          'jpg': 'image/jpeg',
+          'jpeg': 'image/jpeg',
+          'png': 'image/png',
+          'gif': 'image/gif',
+          'doc': 'application/msword',
+          'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'xls': 'application/vnd.ms-excel',
+          'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        };
+        if (extension && mimeTypes[extension]) {
+          finalBlob = new Blob([blob], { type: mimeTypes[extension] });
+          console.log('📎 Tipo MIME inferido:', mimeTypes[extension]);
+        }
+      }
+
       // Crear una URL blob para mostrar el archivo
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(finalBlob);
       console.log('✅ Blob URL creado:', url);
       setBlobUrl(url);
     } catch (err: any) {
@@ -114,6 +136,7 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
           method: 'GET',
           headers: {
             'Authorization': `Bearer ${token}`,
+            'Accept': '*/*', // Aceptar cualquier tipo de contenido para archivos binarios
           },
         });
 
@@ -126,7 +149,9 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
         const link = document.createElement('a');
         link.href = url;
         link.download = archivo.nombre;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
         URL.revokeObjectURL(url);
       } catch (err: any) {
         console.error('Error al descargar archivo:', err);

@@ -1,4 +1,5 @@
 import { getGraphClient, getSiteId, getAccessToken, getSharePointRestToken } from "@/lib/sharepointClient";
+import { msalInstance } from "@/lib/msalConfig";
 import type { Gasto, Empresa, Proyecto, Colaborador } from "@/data/mockData";
 
 const SITE_ID_CACHE_KEY = "sharepoint_site_id";
@@ -51,6 +52,99 @@ async function getListId(listName: string): Promise<string> {
   } catch (error) {
     console.error(`Error al obtener List ID para ${listName}:`, error);
     throw error;
+  }
+}
+
+/**
+ * Obtiene el email del usuario logueado desde MSAL
+ */
+function getUserEmail(): string | null {
+  try {
+    const account = msalInstance.getActiveAccount();
+    console.log("📧 Account completo:", account);
+    
+    if (account) {
+      // Intentar diferentes propiedades donde puede estar el email
+      const email = account.username || 
+                   (account as any).mail || 
+                   (account as any).email ||
+                   account.name;
+      
+      if (email) {
+        console.log(`✅ Email del usuario encontrado: ${email}`);
+        console.log(`📧 Account.username: ${account.username}`);
+        console.log(`📧 Account.name: ${account.name}`);
+        console.log(`📧 Account.mail: ${(account as any).mail}`);
+        return email;
+      }
+    }
+    
+    console.warn("⚠️ No se pudo obtener el email del usuario. Account:", account);
+    return null;
+  } catch (error) {
+    console.error("Error al obtener email del usuario:", error);
+    return null;
+  }
+}
+
+/**
+ * Busca un colaborador por su email en la lista COLABORADORES
+ */
+async function findColaboradorByEmail(email: string): Promise<string | null> {
+  try {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.COLABORADORES);
+    
+    console.log(`🔍 Buscando colaborador con email: ${email}`);
+    console.log(`📋 List ID de COLABORADORES: ${listId}`);
+    
+    // Obtener todos los colaboradores y filtrar en memoria (más confiable que el filtro de Graph API)
+    const response = await client
+      .api(`/sites/${siteId}/lists/${listId}/items`)
+      .expand("fields")
+      .get();
+    
+    console.log(`📋 Total de colaboradores encontrados: ${response.value?.length || 0}`);
+    
+    if (response.value && response.value.length > 0) {
+      // Mostrar todos los colaboradores para debugging
+      response.value.forEach((item: any, index: number) => {
+        const correo = item.fields?.CORREO || item.fields?.Correo || item.fields?.Email || item.fields?.correo || 'N/A';
+        const nombre = item.fields?.NOMBRE || item.fields?.Nombre || item.fields?.Title || 'N/A';
+        console.log(`  Colaborador ${index + 1}: ID=${item.id}, Nombre=${nombre}, Correo=${correo}`);
+      });
+      
+      // Buscar por email (comparar en minúsculas para evitar problemas de mayúsculas/minúsculas)
+      const emailLower = email.toLowerCase().trim();
+      const colaborador = response.value.find((item: any) => {
+        const correo = (item.fields?.CORREO || item.fields?.Correo || item.fields?.Email || item.fields?.correo || '').toLowerCase().trim();
+        return correo === emailLower;
+      });
+      
+      if (colaborador) {
+        const colaboradorId = colaborador.id;
+        const nombre = colaborador.fields?.NOMBRE || colaborador.fields?.Nombre || colaborador.fields?.Title || 'N/A';
+        console.log(`✅ Colaborador encontrado por email ${email}: ID ${colaboradorId}, Nombre: ${nombre}`);
+        return colaboradorId;
+      }
+    }
+    
+    console.warn(`⚠️ No se encontró colaborador con email: ${email}`);
+    console.warn(`⚠️ Emails disponibles en la lista:`);
+    if (response.value) {
+      response.value.forEach((item: any) => {
+        const correo = item.fields?.CORREO || item.fields?.Correo || item.fields?.Email || item.fields?.correo || 'N/A';
+        console.warn(`  - ${correo}`);
+      });
+    }
+    return null;
+  } catch (error) {
+    console.error("❌ Error al buscar colaborador por email:", error);
+    if (error instanceof Error) {
+      console.error("❌ Mensaje de error:", error.message);
+    }
+    return null;
   }
 }
 
@@ -280,12 +374,20 @@ export const gastosService = {
               if (attachmentsResponse.ok) {
                 const data = await attachmentsResponse.json();
                 if (data.d && data.d.results && data.d.results.length > 0) {
-                  const siteUrlObj = new URL(siteUrl);
-                  attachments = data.d.results.map((att: any) => ({
-                    nombre: att.FileName,
-                    url: `${siteUrlObj.origin}${att.ServerRelativeUrl}`,
-                    tipo: att.ContentType || 'application/octet-stream',
-                  }));
+                  // Construir la URL del endpoint REST API para descargar el archivo
+                  // Usamos GetFileByServerRelativeUrl que es el método recomendado
+                  attachments = data.d.results.map((att: any) => {
+                    // Escapar comillas simples en ServerRelativeUrl para el endpoint
+                    const escapedUrl = att.ServerRelativeUrl.replace(/'/g, "''");
+                    const downloadUrl = `${siteUrl}/_api/web/GetFileByServerRelativeUrl('${escapedUrl}')/$value`;
+                    
+                    return {
+                      nombre: att.FileName,
+                      url: downloadUrl,
+                      tipo: att.ContentType || 'application/octet-stream',
+                      serverRelativeUrl: att.ServerRelativeUrl, // Guardar también para referencia
+                    };
+                  });
                 }
               }
             } catch (attachmentsError) {
@@ -345,6 +447,21 @@ export const gastosService = {
           proyectoId = String(proyectoLookupId);
         }
         
+        // PERSONA es un campo lookup
+        let colaboradorId = "";
+        const personaLookupId = item.fields.PERSONALookupId || 
+                               item.fields.PERSONA_x003a__x0020_IDLookupId ||
+                               item.fields.PERSONA;
+        if (personaLookupId) {
+          if (typeof personaLookupId === 'object' && personaLookupId.LookupId) {
+            // Es un objeto lookup
+            colaboradorId = String(personaLookupId.LookupId);
+          } else {
+            // Es directamente el ID (número o string)
+            colaboradorId = String(personaLookupId);
+          }
+        }
+        
         return {
           id: item.id,
           fecha: item.fields.FECHA || item.fields.Fecha || item.fields.fecha || "",
@@ -355,6 +472,7 @@ export const gastosService = {
           monto: item.fields.MONTO || item.fields.Monto || item.fields.monto || 0,
           detalle: item.fields.DETALLE || item.fields.Detalle || item.fields.detalle || "",
           proyectoId: proyectoId || undefined, // Usar el ID del lookup
+          colaboradorId: colaboradorId || undefined, // Usar el ID del lookup de PERSONA
           comentarioTipoDocumento: item.fields.OTRO || item.fields.Otro || item.fields.otro || undefined,
           archivosAdjuntos: item.attachments && item.attachments.length > 0 ? item.attachments : undefined,
         };
@@ -371,17 +489,37 @@ export const gastosService = {
     const listId = await getListId(LISTS.GASTOS);
     
     try {
+      // Obtener el email del usuario logueado y buscar el colaborador correspondiente
+      const userEmail = getUserEmail();
+      let personaId: number | null = null;
+      
+      if (userEmail) {
+        console.log(`🔍 Buscando colaborador para el usuario: ${userEmail}`);
+        const colaboradorIdStr = await findColaboradorByEmail(userEmail);
+        if (colaboradorIdStr) {
+          const parsed = Number(colaboradorIdStr);
+          if (!isNaN(parsed) && parsed > 0) {
+            personaId = parsed;
+            console.log(`✅ Colaborador encontrado, ID: ${personaId}`);
+          }
+        }
+      } else {
+        console.warn("⚠️ No se pudo obtener el email del usuario logueado");
+      }
+      
       // Obtener los nombres internos de las columnas lookup
       const categoriaColumnName = await getColumnInternalName(listId, "CATEGORIA");
       const empresaColumnName = await getColumnInternalName(listId, "EMPRESA");
       const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
       const tipoDocumentoColumnName = await getColumnInternalName(listId, "TIPO_DOCUMENTO");
+      const personaColumnName = await getColumnInternalName(listId, "PERSONA");
       
       console.log("📋 Nombres internos de columnas lookup:");
       console.log("  - CATEGORIA:", categoriaColumnName);
       console.log("  - EMPRESA:", empresaColumnName);
       console.log("  - PROYECTO:", proyectoColumnName);
       console.log("  - TIPO_DOCUMENTO:", tipoDocumentoColumnName);
+      console.log("  - PERSONA:", personaColumnName);
       
       // Parsear IDs de campos lookup (deben ser números)
       let categoriaId: number | null = null;
@@ -527,6 +665,18 @@ export const gastosService = {
         console.log("📝 Tipo Documento ID guardado para actualizar después:", tipoDocumentoId);
       }
       
+      // PERSONA (colaborador identificado por email del usuario logueado)
+      if (personaId !== null) {
+        const personaLookupField = `${personaColumnName}LookupId`;
+        lookupFieldsToUpdate[personaLookupField] = personaId;
+        console.log("📝 Persona ID guardado para actualizar después:");
+        console.log(`  - Campo: ${personaLookupField}`);
+        console.log(`  - Valor: ${personaId}`);
+        console.log(`  - Tipo: ${typeof personaId}`);
+      } else {
+        console.warn("⚠️ No se pudo obtener el ID de la persona. No se guardará en el campo PERSONA.");
+      }
+      
       console.log("📤 Campos finales a enviar (sin categoría):", JSON.stringify(fieldsToSend, null, 2));
       console.log("📤 ¿Incluye CATEGORIA?", categoriaColumnName in fieldsToSend || "CATEGORIA" in fieldsToSend);
       
@@ -562,14 +712,28 @@ export const gastosService = {
             .get();
           
           // Verificar que los campos se guardaron
+          console.log("🔍 Verificando campos lookup actualizados:");
           Object.keys(lookupFieldsToUpdate).forEach(fieldName => {
             const valorGuardado = itemUpdated.fields?.[fieldName];
             if (valorGuardado) {
               console.log(`✅ Campo ${fieldName} verificado y guardado correctamente:`, valorGuardado);
             } else {
               console.warn(`⚠️ Campo ${fieldName} no aparece después de actualizar. Verifica en SharePoint.`);
+              console.warn(`⚠️ Campos disponibles en el item:`, Object.keys(itemUpdated.fields || {}));
             }
           });
+          
+          // Verificación específica para PERSONA
+          if (personaId !== null) {
+            const personaLookupField = `${personaColumnName}LookupId`;
+            const personaGuardada = itemUpdated.fields?.[personaLookupField];
+            if (personaGuardada) {
+              console.log(`✅ Campo PERSONA (${personaLookupField}) guardado correctamente:`, personaGuardada);
+            } else {
+              console.error(`❌ Campo PERSONA (${personaLookupField}) NO se guardó. Valor esperado: ${personaId}`);
+              console.error(`❌ Todos los campos del item:`, JSON.stringify(itemUpdated.fields, null, 2));
+            }
+          }
         } catch (updateError: any) {
           console.error("❌ Error al actualizar los campos lookup:", updateError);
           if (updateError?.body) {
@@ -615,14 +779,7 @@ export const gastosService = {
               // Leer el archivo como ArrayBuffer
               const arrayBuffer = await archivo.arrayBuffer();
               
-              // Convertir a base64 de forma segura (maneja archivos grandes)
-              const bytes = new Uint8Array(arrayBuffer);
-              let binary = '';
-              const len = bytes.byteLength;
-              for (let i = 0; i < len; i++) {
-                binary += String.fromCharCode(bytes[i]);
-              }
-              const base64 = btoa(binary);
+              console.log(`📤 Archivo leído: ${archivo.name} (${arrayBuffer.byteLength} bytes, tipo: ${archivo.type || 'application/octet-stream'})`);
               
               // Subir el archivo usando SharePoint REST API
               // Microsoft Graph API no soporta attachments en list items
@@ -632,17 +789,24 @@ export const gastosService = {
               // Construir la URL de SharePoint REST API para subir el attachment
               // IMPORTANTE: Usar la URL completa del sitio (incluyendo el path), no solo el origin
               const listName = LISTS.GASTOS;
-              const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${response.id})/AttachmentFiles/add(FileName='${encodeURIComponent(archivo.name)}')`;
+              // SharePoint REST API requiere que el nombre del archivo esté codificado correctamente
+              // Usar encodeURIComponent para manejar caracteres especiales en el nombre del archivo
+              const fileName = encodeURIComponent(archivo.name);
+              const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${response.id})/AttachmentFiles/add(FileName='${fileName}')`;
+              
+              console.log(`📤 Subiendo archivo a: ${restApiUrl}`);
               
               // Subir el archivo usando SharePoint REST API
+              // IMPORTANTE: SharePoint REST API requiere el contenido binario directamente, no base64
+              // El Content-Type debe ser el tipo MIME del archivo o application/octet-stream
               const uploadResponse = await fetch(restApiUrl, {
                 method: 'POST',
                 headers: {
                   'Accept': 'application/json;odata=verbose',
                   'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json',
+                  'Content-Type': archivo.type || 'application/octet-stream',
                 },
-                body: base64,
+                body: arrayBuffer, // Usar el ArrayBuffer directamente, no base64
               });
               
               if (!uploadResponse.ok) {
@@ -1044,6 +1208,130 @@ export const categoriasService = {
       throw error;
     }
   },
+
+  async create(categoria: Omit<Categoria, "id">): Promise<Categoria> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.CATEGORIAS);
+    
+    try {
+      const fields: any = {
+        NOM_CATEGORIA: categoria.nombre,
+      };
+      
+      if (categoria.color) {
+        fields.COLOR = categoria.color;
+      }
+      
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .post({
+          fields,
+        });
+      
+      return {
+        id: response.id,
+        ...categoria,
+      };
+    } catch (error) {
+      console.error("Error al crear categoría:", error);
+      throw error;
+    }
+  },
+
+  async update(id: string, categoria: Partial<Categoria>): Promise<Categoria> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.CATEGORIAS);
+    
+    try {
+      const fields: any = {};
+      if (categoria.nombre !== undefined) fields.NOM_CATEGORIA = categoria.nombre;
+      if (categoria.color !== undefined) fields.COLOR = categoria.color;
+      
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+        .patch(fields);
+      
+      return {
+        id,
+        ...categoria,
+      } as Categoria;
+    } catch (error) {
+      console.error("Error al actualizar categoría:", error);
+      throw error;
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.CATEGORIAS);
+    
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
+        .delete();
+    } catch (error) {
+      console.error("Error al eliminar categoría:", error);
+      throw error;
+    }
+  },
+
+  /**
+   * Actualiza los colores de las categorías basándose en los nombres
+   * Mapea los nombres de categorías locales a sus colores (clases Tailwind que usan variables CSS)
+   */
+  async updateCategoriasColors(): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.CATEGORIAS);
+    
+    // Mapeo de nombres de categorías a clases Tailwind que usan las variables CSS pasteles
+    // Estas clases referencian los colores definidos en index.css
+    const colorMap: Record<string, string> = {
+      'Gastos Generales': 'bg-category-gastos-generales',
+      'Sueldos': 'bg-category-sueldos',
+      'Honorarios': 'bg-category-honorarios',
+      'Mantenimiento': 'bg-category-mantenimiento',
+      'Materiales': 'bg-category-materiales',
+    };
+    
+    try {
+      // Obtener todas las categorías
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
+        .get();
+      
+      // Actualizar cada categoría con su color correspondiente
+      const updatePromises = response.value.map(async (item: any) => {
+        const nombre = item.fields.NOM_CATEGORIA || item.fields.NomCategoria || item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "";
+        const color = colorMap[nombre];
+        
+        if (color) {
+          try {
+            await client
+              .api(`/sites/${siteId}/lists/${listId}/items/${item.id}/fields`)
+              .patch({
+                COLOR: color,
+              });
+            console.log(`✅ Color actualizado para "${nombre}": ${color}`);
+          } catch (error) {
+            console.error(`❌ Error al actualizar color para "${nombre}":`, error);
+          }
+        } else {
+          console.warn(`⚠️ No se encontró color para la categoría "${nombre}"`);
+        }
+      });
+      
+      await Promise.all(updatePromises);
+      console.log("✅ Actualización de colores completada");
+    } catch (error) {
+      console.error("Error al actualizar colores de categorías:", error);
+      throw error;
+    }
+  },
 };
 
 // ========== SERVICIOS PARA TIPOS DE DOCUMENTO ==========
@@ -1071,6 +1359,70 @@ export const tiposDocumentoService = {
       }));
     } catch (error) {
       console.error("Error al obtener tipos de documento:", error);
+      throw error;
+    }
+  },
+
+  async create(tipoDocumento: Omit<TipoDocumento, "id">): Promise<TipoDocumento> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.TIPOS_DOCUMENTO);
+    
+    try {
+      const fields: any = {
+        NOM_DOCUMENTO: tipoDocumento.nombre,
+      };
+      
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .post({
+          fields,
+        });
+      
+      return {
+        id: response.id,
+        ...tipoDocumento,
+      };
+    } catch (error) {
+      console.error("Error al crear tipo de documento:", error);
+      throw error;
+    }
+  },
+
+  async update(id: string, tipoDocumento: Partial<TipoDocumento>): Promise<TipoDocumento> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.TIPOS_DOCUMENTO);
+    
+    try {
+      const fields: any = {};
+      if (tipoDocumento.nombre !== undefined) fields.NOM_DOCUMENTO = tipoDocumento.nombre;
+      
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+        .patch(fields);
+      
+      return {
+        id,
+        ...tipoDocumento,
+      } as TipoDocumento;
+    } catch (error) {
+      console.error("Error al actualizar tipo de documento:", error);
+      throw error;
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.TIPOS_DOCUMENTO);
+    
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
+        .delete();
+    } catch (error) {
+      console.error("Error al eliminar tipo de documento:", error);
       throw error;
     }
   },

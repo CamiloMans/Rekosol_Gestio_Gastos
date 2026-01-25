@@ -3,26 +3,26 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Proyecto } from '@/data/mockData';
 import { Save } from 'lucide-react';
+import type { TipoDocumento } from '@/services/sharepointService';
 
-interface ProyectoModalProps {
+interface TipoDocumentoModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (proyecto: Omit<Proyecto, 'id' | 'createdAt'>) => void;
-  proyecto?: Proyecto;
+  onSave: (tipoDocumento: Omit<TipoDocumento, 'id'>) => void;
+  tipoDocumento?: TipoDocumento;
 }
 
-export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModalProps) {
+export function TipoDocumentoModal({ open, onClose, onSave, tipoDocumento }: TipoDocumentoModalProps) {
   const [nombre, setNombre] = useState('');
 
   useEffect(() => {
-    if (proyecto) {
-      setNombre(proyecto.nombre);
+    if (tipoDocumento) {
+      setNombre(tipoDocumento.nombre);
     } else {
       setNombre('');
     }
-  }, [proyecto, open]);
+  }, [tipoDocumento, open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,15 +35,15 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
       <DialogContent className="sm:max-w-md bg-card">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
-            {proyecto ? 'Editar Proyecto' : 'Nuevo Proyecto'}
+            {tipoDocumento ? 'Editar Tipo de Documento' : 'Nuevo Tipo de Documento'}
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="space-y-2">
-            <Label htmlFor="nombre">Nombre del Proyecto *</Label>
+            <Label htmlFor="nombre">Nombre del Tipo de Documento *</Label>
             <Input
               id="nombre"
-              placeholder="Nombre del proyecto"
+              placeholder="Nombre del tipo de documento"
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
               required
@@ -64,10 +64,4 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
     </Dialog>
   );
 }
-
-
-
-
-
-
 

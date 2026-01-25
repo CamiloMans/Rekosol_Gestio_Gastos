@@ -14,7 +14,6 @@ const navItems = [
   { path: '/', label: 'Reportes', icon: BarChart3 },
   { path: '/gastos', label: 'Gastos', icon: Receipt },
   { path: '/empresas', label: 'Configuración', icon: Settings },
-  { path: '/check-fields', label: 'Verificar Campos', icon: Settings },
 ];
 
 export function Layout({ children, onNewGasto }: LayoutProps) {

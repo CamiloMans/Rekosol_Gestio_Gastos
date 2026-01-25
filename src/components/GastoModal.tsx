@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { categorias as categoriasMock, empresasData as empresasDataMock, proyectosData, Gasto, Proyecto, Empresa } from '@/data/mockData';
-import { Save, Plus, Paperclip } from 'lucide-react';
+import { Save, Plus, Paperclip, Camera } from 'lucide-react';
 import { ProyectoModal } from './ProyectoModal';
 import { EmpresaModal } from './EmpresaModal';
 import { useProyectos, useEmpresas, useCategorias, useTiposDocumento, useSharePointAuth } from '@/hooks/useSharePoint';
@@ -92,7 +92,7 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       setComentarioTipoDocumento(gasto.comentarioTipoDocumento || '');
     } else {
       setFecha(new Date().toISOString().split('T')[0]);
-            setCategoria('');
+      setCategoria('');
             setTipoDocumento(''); // Resetear a vacío, se seleccionará desde el dropdown
       setNumeroDocumento('');
       setEmpresaId('');
@@ -156,13 +156,13 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
     } catch (error) {
       console.error("Error al guardar proyecto:", error);
       // En caso de error, usar fallback local
-      const proyectoCreado: Proyecto = {
-        ...nuevoProyecto,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString().split('T')[0],
-      };
-      setProyectoId(proyectoCreado.id);
-      setProyectoModalOpen(false);
+    const proyectoCreado: Proyecto = {
+      ...nuevoProyecto,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    setProyectoId(proyectoCreado.id);
+    setProyectoModalOpen(false);
     }
   };
 
@@ -185,13 +185,13 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
     } catch (error) {
       console.error("Error al guardar empresa:", error);
       // En caso de error, usar fallback local
-      const empresaCreada: Empresa = {
-        ...nuevaEmpresa,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString().split('T')[0],
-      };
-      setEmpresaId(empresaCreada.id);
-      setEmpresaModalOpen(false);
+    const empresaCreada: Empresa = {
+      ...nuevaEmpresa,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    setEmpresaId(empresaCreada.id);
+    setEmpresaModalOpen(false);
     }
   };
 
@@ -252,7 +252,7 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                   {categorias.length > 0 ? (
                     categorias.map((cat) => (
                       <SelectItem key={cat.id} value={String(cat.id)}>
-                        {cat.nombre}
+                      {cat.nombre}
                       </SelectItem>
                     ))
                   ) : (
@@ -358,9 +358,27 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                 id="archivosAdjuntos"
                 multiple
                 className="hidden"
+                accept="image/*,application/pdf"
                 onChange={(e) => {
                   const files = Array.from(e.target.files || []);
                   setArchivosAdjuntos([...archivosAdjuntos, ...files]);
+                  // Resetear el input para permitir seleccionar el mismo archivo nuevamente
+                  e.target.value = '';
+                }}
+              />
+              <input
+                type="file"
+                id="cameraInput"
+                className="hidden"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  if (files.length > 0) {
+                    setArchivosAdjuntos([...archivosAdjuntos, ...files]);
+                  }
+                  // Resetear el input para permitir tomar otra foto
+                  e.target.value = '';
                 }}
               />
               <Button
@@ -371,6 +389,15 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                 title="Adjuntar documentos"
               >
                 <Paperclip size={18} />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => document.getElementById('cameraInput')?.click()}
+                title="Tomar foto"
+              >
+                <Camera size={18} />
               </Button>
             </div>
             {archivosAdjuntos.length > 0 && (

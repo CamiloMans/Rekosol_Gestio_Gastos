@@ -371,6 +371,37 @@ export function useCategorias() {
     }
   };
 
+  const createCategoria = async (categoria: Omit<Categoria, "id">) => {
+    try {
+      const nuevaCategoria = await categoriasService.create(categoria);
+      setCategorias([...categorias, nuevaCategoria]);
+      return nuevaCategoria;
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al crear categoría"));
+      throw err;
+    }
+  };
+
+  const updateCategoria = async (id: string, categoria: Partial<Categoria>) => {
+    try {
+      await categoriasService.update(id, categoria);
+      setCategorias(categorias.map((c) => (c.id === id ? { ...c, ...categoria } : c)));
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al actualizar categoría"));
+      throw err;
+    }
+  };
+
+  const deleteCategoria = async (id: string) => {
+    try {
+      await categoriasService.delete(id);
+      setCategorias(categorias.filter((c) => c.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al eliminar categoría"));
+      throw err;
+    }
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
       loadCategorias();
@@ -382,6 +413,9 @@ export function useCategorias() {
     loading,
     error,
     loadCategorias,
+    createCategoria,
+    updateCategoria,
+    deleteCategoria,
   };
 }
 
@@ -410,6 +444,37 @@ export function useTiposDocumento() {
     }
   };
 
+  const createTipoDocumento = async (tipoDocumento: Omit<TipoDocumento, "id">) => {
+    try {
+      const nuevoTipoDocumento = await tiposDocumentoService.create(tipoDocumento);
+      setTiposDocumento([...tiposDocumento, nuevoTipoDocumento]);
+      return nuevoTipoDocumento;
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al crear tipo de documento"));
+      throw err;
+    }
+  };
+
+  const updateTipoDocumento = async (id: string, tipoDocumento: Partial<TipoDocumento>) => {
+    try {
+      await tiposDocumentoService.update(id, tipoDocumento);
+      setTiposDocumento(tiposDocumento.map((t) => (t.id === id ? { ...t, ...tipoDocumento } : t)));
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al actualizar tipo de documento"));
+      throw err;
+    }
+  };
+
+  const deleteTipoDocumento = async (id: string) => {
+    try {
+      await tiposDocumentoService.delete(id);
+      setTiposDocumento(tiposDocumento.filter((t) => t.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al eliminar tipo de documento"));
+      throw err;
+    }
+  };
+
   useEffect(() => {
     if (isAuthenticated) {
       loadTiposDocumento();
@@ -421,6 +486,9 @@ export function useTiposDocumento() {
     loading,
     error,
     loadTiposDocumento,
+    createTipoDocumento,
+    updateTipoDocumento,
+    deleteTipoDocumento,
   };
 }
 

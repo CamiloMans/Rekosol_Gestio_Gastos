@@ -24,8 +24,22 @@ export function CategoryBadge({ categoryId, className }: CategoryBadgeProps) {
   
   if (!category) return null;
 
+  // Detectar si el color es un código hexadecimal o una clase de Tailwind
+  const isHexColor = category.color?.startsWith('#');
+  const isRgbColor = category.color?.startsWith('rgb') || category.color?.startsWith('rgba');
+  const isTailwindClass = category.color?.startsWith('bg-');
+  
+  // Si es un color hexadecimal o RGB, aplicarlo como estilo inline
+  // Si es una clase de Tailwind (como bg-category-*), aplicarla como clase CSS
+  // Las clases bg-category-* usan las variables CSS definidas en index.css
+  const style = (isHexColor || isRgbColor) ? { backgroundColor: category.color } : undefined;
+  const colorClass = (isHexColor || isRgbColor) ? undefined : category.color;
+
   return (
-    <span className={cn("category-badge", category.color, className)}>
+    <span 
+      className={cn("category-badge", colorClass, className)}
+      style={style}
+    >
       {category.nombre}
     </span>
   );

@@ -4,32 +4,48 @@ import { PageHeader } from '@/components/PageHeader';
 import { EmpresaModal } from '@/components/EmpresaModal';
 import { ProyectoModal } from '@/components/ProyectoModal';
 import { ColaboradorModal } from '@/components/ColaboradorModal';
+import { CategoriaModal } from '@/components/CategoriaModal';
+import { TipoDocumentoModal } from '@/components/TipoDocumentoModal';
 import { empresasData as empresasDataMock, proyectosData, colaboradoresData, formatDateLong, Empresa, Proyecto, Colaborador } from '@/data/mockData';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Search, Building2, FolderKanban, Users, Pencil, Trash2 } from 'lucide-react';
-import { useEmpresas, useProyectos, useColaboradores, useSharePointAuth } from '@/hooks/useSharePoint';
+import { Search, Building2, FolderKanban, Users, Tag, FileText, Pencil, Trash2 } from 'lucide-react';
+import { useEmpresas, useProyectos, useColaboradores, useCategorias, useTiposDocumento, useSharePointAuth } from '@/hooks/useSharePoint';
 import { toast } from '@/hooks/use-toast';
+import { categoriasService } from '@/services/sharepointService';
+import type { Categoria, TipoDocumento } from '@/services/sharepointService';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ColorPicker } from '@/components/ColorPicker';
 
 export default function Empresas() {
   const { isAuthenticated } = useSharePointAuth();
   const { empresas: empresasSharePoint, loading: loadingEmpresas, error: errorEmpresas, createEmpresa, updateEmpresa, deleteEmpresa } = useEmpresas();
   const { proyectos: proyectosSharePoint, loading: loadingProyectos, error: errorProyectos, createProyecto, deleteProyecto } = useProyectos();
   const { colaboradores: colaboradoresSharePoint, loading: loadingColaboradores, error: errorColaboradores, createColaborador, deleteColaborador } = useColaboradores();
+  const { categorias: categoriasSharePoint, loading: loadingCategorias, error: errorCategorias, createCategoria, updateCategoria, deleteCategoria } = useCategorias();
+  const { tiposDocumento: tiposDocumentoSharePoint, loading: loadingTiposDocumento, error: errorTiposDocumento, createTipoDocumento, updateTipoDocumento, deleteTipoDocumento } = useTiposDocumento();
   
   // Usar datos de SharePoint si está autenticado, sino usar datos mock
   const empresas = isAuthenticated ? empresasSharePoint : empresasDataMock;
   const proyectos = isAuthenticated ? proyectosSharePoint : proyectosData;
   const colaboradores = isAuthenticated ? colaboradoresSharePoint : colaboradoresData;
+  const categorias = isAuthenticated ? categoriasSharePoint : [];
+  const tiposDocumento = isAuthenticated ? tiposDocumentoSharePoint : [];
   
-  const [vista, setVista] = useState<'empresas' | 'proyectos' | 'colaboradores'>('empresas');
+  const [vista, setVista] = useState<'empresas' | 'proyectos' | 'colaboradores' | 'categorias' | 'tiposDocumento'>('empresas');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState<Empresa | undefined>();
   const [editingProyecto, setEditingProyecto] = useState<Proyecto | undefined>();
   const [editingColaborador, setEditingColaborador] = useState<Colaborador | undefined>();
+  const [editingCategoria, setEditingCategoria] = useState<Categoria | undefined>();
+  const [editingTipoDocumento, setEditingTipoDocumento] = useState<TipoDocumento | undefined>();
   const [searchTerm, setSearchTerm] = useState('');
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmDescription, setConfirmDescription] = useState('');
 
   // Mostrar errores
   useEffect(() => {
@@ -54,7 +70,21 @@ export default function Empresas() {
         variant: "destructive",
       });
     }
-  }, [errorEmpresas, errorProyectos, errorColaboradores]);
+    if (errorCategorias) {
+      toast({
+        title: "Error",
+        description: errorCategorias.message,
+        variant: "destructive",
+      });
+    }
+    if (errorTiposDocumento) {
+      toast({
+        title: "Error",
+        description: errorTiposDocumento.message,
+        variant: "destructive",
+      });
+    }
+  }, [errorEmpresas, errorProyectos, errorColaboradores, errorCategorias, errorTiposDocumento]);
 
   const filteredEmpresas = empresas.filter(empresa => 
     empresa.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -71,6 +101,14 @@ export default function Empresas() {
     colaborador.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const filteredCategorias = categorias.filter(categoria =>
+    categoria.nombre.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const filteredTiposDocumento = tiposDocumento.filter(tipo =>
+    tipo.nombre.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   const handleSaveEmpresa = async (newEmpresa: Omit<Empresa, 'id' | 'createdAt'>) => {
     try {
       if (editingEmpresa) {
@@ -79,6 +117,7 @@ export default function Empresas() {
           toast({
             title: "Empresa actualizada",
             description: "La empresa se ha actualizado correctamente en SharePoint",
+            variant: "success",
           });
         } else {
           toast({
@@ -93,6 +132,7 @@ export default function Empresas() {
           toast({
             title: "Empresa guardada",
             description: "La empresa se ha guardado correctamente en SharePoint",
+            variant: "success",
           });
         } else {
           toast({
@@ -117,7 +157,7 @@ export default function Empresas() {
     setModalOpen(true);
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (vista === 'empresas') {
       if (!isAuthenticated) {
         toast({
@@ -128,12 +168,15 @@ export default function Empresas() {
         return;
       }
       
-      if (confirm("¿Estás seguro de que deseas eliminar esta empresa?")) {
+      setConfirmTitle("Eliminar empresa");
+      setConfirmDescription("¿Estás seguro de que deseas eliminar esta empresa? Esta acción no se puede deshacer.");
+      setConfirmAction(async () => {
         try {
           await deleteEmpresa(id);
           toast({
             title: "Empresa eliminada",
             description: "La empresa se ha eliminado correctamente",
+            variant: "success",
           });
         } catch (error) {
           toast({
@@ -142,7 +185,8 @@ export default function Empresas() {
             variant: "destructive",
           });
         }
-      }
+      });
+      setConfirmDialogOpen(true);
     } else if (vista === 'proyectos') {
       if (!isAuthenticated) {
         toast({
@@ -153,12 +197,15 @@ export default function Empresas() {
         return;
       }
       
-      if (confirm("¿Estás seguro de que deseas eliminar este proyecto?")) {
+      setConfirmTitle("Eliminar proyecto");
+      setConfirmDescription("¿Estás seguro de que deseas eliminar este proyecto? Esta acción no se puede deshacer.");
+      setConfirmAction(async () => {
         try {
           await deleteProyecto(id);
           toast({
             title: "Proyecto eliminado",
             description: "El proyecto se ha eliminado correctamente",
+            variant: "success",
           });
         } catch (error) {
           toast({
@@ -167,8 +214,9 @@ export default function Empresas() {
             variant: "destructive",
           });
         }
-      }
-    } else {
+      });
+      setConfirmDialogOpen(true);
+    } else if (vista === 'colaboradores') {
       if (!isAuthenticated) {
         toast({
           title: "No autenticado",
@@ -178,12 +226,15 @@ export default function Empresas() {
         return;
       }
       
-      if (confirm("¿Estás seguro de que deseas eliminar este colaborador?")) {
+      setConfirmTitle("Eliminar colaborador");
+      setConfirmDescription("¿Estás seguro de que deseas eliminar este colaborador? Esta acción no se puede deshacer.");
+      setConfirmAction(async () => {
         try {
           await deleteColaborador(id);
           toast({
             title: "Colaborador eliminado",
             description: "El colaborador se ha eliminado correctamente",
+            variant: "success",
           });
         } catch (error) {
           toast({
@@ -192,7 +243,73 @@ export default function Empresas() {
             variant: "destructive",
           });
         }
+      });
+      setConfirmDialogOpen(true);
+    } else if (vista === 'categorias') {
+      if (!isAuthenticated) {
+        toast({
+          title: "No autenticado",
+          description: "Por favor, inicia sesión para eliminar categorías",
+          variant: "destructive",
+        });
+        return;
       }
+      
+      setConfirmTitle("Eliminar categoría");
+      setConfirmDescription("¿Estás seguro de que deseas eliminar esta categoría? Esta acción no se puede deshacer.");
+      setConfirmAction(async () => {
+        try {
+          await deleteCategoria(id);
+          toast({
+            title: "Categoría eliminada",
+            description: "La categoría se ha eliminado correctamente",
+            variant: "success",
+          });
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: error instanceof Error ? error.message : "Error al eliminar la categoría",
+            variant: "destructive",
+          });
+        }
+      });
+      setConfirmDialogOpen(true);
+    } else if (vista === 'tiposDocumento') {
+      if (!isAuthenticated) {
+        toast({
+          title: "No autenticado",
+          description: "Por favor, inicia sesión para eliminar tipos de documento",
+          variant: "destructive",
+        });
+        return;
+      }
+      
+      setConfirmTitle("Eliminar tipo de documento");
+      setConfirmDescription("¿Estás seguro de que deseas eliminar este tipo de documento? Esta acción no se puede deshacer.");
+      setConfirmAction(async () => {
+        try {
+          await deleteTipoDocumento(id);
+          toast({
+            title: "Tipo de documento eliminado",
+            description: "El tipo de documento se ha eliminado correctamente",
+            variant: "success",
+          });
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: error instanceof Error ? error.message : "Error al eliminar el tipo de documento",
+            variant: "destructive",
+          });
+        }
+      });
+      setConfirmDialogOpen(true);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (confirmAction) {
+      await confirmAction();
+      setConfirmAction(null);
     }
   };
 
@@ -203,6 +320,7 @@ export default function Empresas() {
         toast({
           title: "Proyecto guardado",
           description: "El proyecto se ha guardado correctamente en SharePoint",
+          variant: "success",
         });
       } else {
         toast({
@@ -256,20 +374,150 @@ export default function Empresas() {
     setModalOpen(true);
   };
 
+  const handleSaveCategoria = async (newCategoria: Omit<Categoria, 'id'>) => {
+    try {
+      if (editingCategoria) {
+        if (isAuthenticated) {
+          await updateCategoria(editingCategoria.id, newCategoria);
+          toast({
+            title: "Categoría actualizada",
+            description: "La categoría se ha actualizado correctamente en SharePoint",
+            variant: "success",
+          });
+        } else {
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesión para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      } else {
+        if (isAuthenticated) {
+          await createCategoria(newCategoria);
+          toast({
+            title: "Categoría guardada",
+            description: "La categoría se ha guardado correctamente en SharePoint",
+            variant: "success",
+          });
+        } else {
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesión para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      }
+      setEditingCategoria(undefined);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al guardar la categoría",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEditCategoria = (categoria: Categoria) => {
+    setEditingCategoria(categoria);
+    setModalOpen(true);
+  };
+
+  const handleSaveTipoDocumento = async (newTipoDocumento: Omit<TipoDocumento, 'id'>) => {
+    try {
+      if (editingTipoDocumento) {
+        if (isAuthenticated) {
+          await updateTipoDocumento(editingTipoDocumento.id, newTipoDocumento);
+          toast({
+            title: "Tipo de documento actualizado",
+            description: "El tipo de documento se ha actualizado correctamente en SharePoint",
+            variant: "success",
+          });
+        } else {
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesión para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      } else {
+        if (isAuthenticated) {
+          await createTipoDocumento(newTipoDocumento);
+          toast({
+            title: "Tipo de documento guardado",
+            description: "El tipo de documento se ha guardado correctamente en SharePoint",
+            variant: "success",
+          });
+        } else {
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesión para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      }
+      setEditingTipoDocumento(undefined);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al guardar el tipo de documento",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleEditTipoDocumento = (tipoDocumento: TipoDocumento) => {
+    setEditingTipoDocumento(tipoDocumento);
+    setModalOpen(true);
+  };
+
+  // Función para actualizar los colores de las categorías desde los datos locales
+  const handleUpdateCategoriasColors = async () => {
+    if (!isAuthenticated) {
+      toast({
+        title: "No autenticado",
+        description: "Por favor, inicia sesión para actualizar los colores",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setConfirmTitle("Actualizar colores de categorías");
+    setConfirmDescription("¿Deseas actualizar los colores de todas las categorías con los colores predeterminados?");
+    setConfirmAction(async () => {
+      try {
+        await categoriasService.updateCategoriasColors();
+        toast({
+          title: "Colores actualizados",
+          description: "Los colores de las categorías se han actualizado correctamente en SharePoint",
+          variant: "success",
+        });
+        // Recargar las categorías para ver los cambios
+        window.location.reload();
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: error instanceof Error ? error.message : "Error al actualizar los colores",
+          variant: "destructive",
+        });
+      }
+    });
+    setConfirmDialogOpen(true);
+  };
+
   return (
     <Layout onNewGasto={() => setModalOpen(true)}>
       <PageHeader 
-        title={vista === 'empresas' ? 'Empresas' : vista === 'proyectos' ? 'Proyectos' : 'Colaboradores'} 
-        subtitle={vista === 'empresas' ? `${empresas.length} empresas activas` : vista === 'proyectos' ? `${proyectos.length} proyectos activos` : `${colaboradores.length} colaboradores activos`}
-        action={{ 
-          label: vista === 'empresas' ? 'Nueva Empresa' : vista === 'proyectos' ? 'Nuevo Proyecto' : 'Nuevo Colaborador', 
+        title={vista === 'empresas' ? 'Empresas' : vista === 'proyectos' ? 'Proyectos' : vista === 'colaboradores' ? 'Colaboradores' : vista === 'categorias' ? 'Categorías' : 'Tipos de Documento'} 
+        subtitle={vista === 'empresas' ? `${empresas.length} empresas activas` : vista === 'proyectos' ? `${proyectos.length} proyectos activos` : vista === 'colaboradores' ? `${colaboradores.length} colaboradores activos` : vista === 'categorias' ? `${categorias.length} categorías activas` : `${tiposDocumento.length} tipos de documento activos`}
+        action={{
+          label: vista === 'empresas' ? 'Nueva Empresa' : vista === 'proyectos' ? 'Nuevo Proyecto' : vista === 'colaboradores' ? 'Nuevo Colaborador' : vista === 'categorias' ? 'Nueva Categoría' : 'Nuevo Tipo de Documento', 
           onClick: () => setModalOpen(true) 
         }}
       />
 
-      {/* Toggle Empresas/Proyectos/Colaboradores */}
+      {/* Toggle Empresas/Proyectos/Colaboradores/Categorías/Tipos de Documento */}
       <div className="bg-card rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 shadow-sm border border-border">
-        <ToggleGroup type="single" value={vista} onValueChange={(value) => value && setVista(value as 'empresas' | 'proyectos' | 'colaboradores')} className="flex-col sm:flex-row justify-start w-full sm:w-auto">
+        <ToggleGroup type="single" value={vista} onValueChange={(value) => value && setVista(value as 'empresas' | 'proyectos' | 'colaboradores' | 'categorias' | 'tiposDocumento')} className="flex-col sm:flex-row justify-start w-full sm:w-auto">
           <ToggleGroupItem value="empresas" aria-label="Ver empresas" className="w-full sm:w-auto">
             <Building2 size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
             <span className="text-sm sm:text-base">Empresas</span>
@@ -282,6 +530,14 @@ export default function Empresas() {
             <Users size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
             <span className="text-sm sm:text-base">Colaboradores</span>
           </ToggleGroupItem>
+          <ToggleGroupItem value="categorias" aria-label="Ver categorías" className="w-full sm:w-auto">
+            <Tag size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
+            <span className="text-sm sm:text-base">Categorías</span>
+          </ToggleGroupItem>
+          <ToggleGroupItem value="tiposDocumento" aria-label="Ver tipos de documento" className="w-full sm:w-auto">
+            <FileText size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
+            <span className="text-sm sm:text-base">Documentos</span>
+          </ToggleGroupItem>
         </ToggleGroup>
       </div>
 
@@ -290,7 +546,7 @@ export default function Empresas() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
           <Input
-            placeholder={vista === 'empresas' ? 'Buscar por razón social o RUT...' : vista === 'proyectos' ? 'Buscar por nombre del proyecto...' : 'Buscar por nombre, email o cargo...'}
+            placeholder={vista === 'empresas' ? 'Buscar por razón social o RUT...' : vista === 'proyectos' ? 'Buscar por nombre del proyecto...' : vista === 'colaboradores' ? 'Buscar por nombre, email o cargo...' : vista === 'categorias' ? 'Buscar por nombre de categoría...' : 'Buscar por nombre de tipo de documento...'}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-10"
@@ -301,7 +557,7 @@ export default function Empresas() {
       {/* Table */}
       <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
         <div className="p-4 border-b border-border">
-          <h3 className="font-semibold text-sm sm:text-base">{vista === 'empresas' ? 'Empresas Activas' : vista === 'proyectos' ? 'Proyectos Activos' : 'Colaboradores Activos'}</h3>
+          <h3 className="font-semibold text-sm sm:text-base">{vista === 'empresas' ? 'Empresas Activas' : vista === 'proyectos' ? 'Proyectos Activos' : vista === 'colaboradores' ? 'Colaboradores Activos' : vista === 'categorias' ? 'Categorías Activas' : 'Tipos de Documento Activos'}</h3>
         </div>
         <div className="overflow-x-auto">
           <Table>
@@ -377,7 +633,7 @@ export default function Empresas() {
                 ))}
               </TableBody>
             </>
-          ) : (
+          ) : vista === 'colaboradores' ? (
             <>
               <TableHeader>
                 <TableRow className="bg-muted/50">
@@ -418,7 +674,101 @@ export default function Empresas() {
                 ))}
               </TableBody>
             </>
-          )}
+          ) : vista === 'categorias' ? (
+            <>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold">CATEGORÍA</TableHead>
+                  <TableHead className="font-semibold text-center">ACCIONES</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredCategorias.map((categoria) => (
+                  <TableRow key={categoria.id} className="animate-fade-in">
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <ColorPicker
+                          currentColor={categoria.color || 'bg-muted'}
+                          onColorChange={async (newColor) => {
+                            try {
+                              await updateCategoria(categoria.id, {
+                                nombre: categoria.nombre,
+                                color: newColor,
+                              });
+                              toast({
+                                title: "Color actualizado",
+                                description: "El color de la categoría se ha actualizado correctamente",
+                                variant: "success",
+                              });
+                            } catch (error) {
+                              toast({
+                                title: "Error",
+                                description: error instanceof Error ? error.message : "Error al actualizar el color",
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                          disabled={!isAuthenticated}
+                        />
+                        <span className="font-medium">{categoria.nombre}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-center gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditCategoria(categoria)}>
+                          <Pencil size={16} />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDelete(categoria.id)}>
+                          <Trash2 size={16} className="text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </>
+          ) : vista === 'tiposDocumento' ? (
+            <>
+              <TableHeader>
+                <TableRow className="bg-muted/50">
+                  <TableHead className="font-semibold">TIPO DE DOCUMENTO</TableHead>
+                  <TableHead className="font-semibold text-center">ACCIONES</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredTiposDocumento.length > 0 ? (
+                  filteredTiposDocumento.map((tipo) => (
+                    <TableRow key={tipo.id} className="animate-fade-in">
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                            <FileText size={18} className="text-muted-foreground" />
+                          </div>
+                          <span className="font-medium">{tipo.nombre}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex justify-center gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => handleEditTipoDocumento(tipo)}>
+                            <Pencil size={16} />
+                          </Button>
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(tipo.id)}>
+                            <Trash2 size={16} className="text-destructive" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={2} className="text-center text-muted-foreground py-8">
+                      {loadingTiposDocumento ? 'Cargando tipos de documento...' : 'No hay tipos de documento disponibles'}
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </>
+          ) : null}
         </Table>
         </div>
       </div>
@@ -443,7 +793,7 @@ export default function Empresas() {
           onSave={handleSaveProyecto}
           proyecto={editingProyecto}
         />
-      ) : (
+      ) : vista === 'colaboradores' ? (
         <ColaboradorModal
           open={modalOpen}
           onClose={() => {
@@ -453,7 +803,37 @@ export default function Empresas() {
           onSave={handleSaveColaborador}
           colaborador={editingColaborador}
         />
+      ) : vista === 'categorias' ? (
+        <CategoriaModal
+          open={modalOpen}
+          onClose={() => {
+            setModalOpen(false);
+            setEditingCategoria(undefined);
+          }}
+          onSave={handleSaveCategoria}
+          categoria={editingCategoria}
+        />
+      ) : (
+        <TipoDocumentoModal
+          open={modalOpen}
+          onClose={() => {
+            setModalOpen(false);
+            setEditingTipoDocumento(undefined);
+          }}
+          onSave={handleSaveTipoDocumento}
+          tipoDocumento={editingTipoDocumento}
+        />
       )}
+      
+      <ConfirmDialog
+        open={confirmDialogOpen}
+        onOpenChange={setConfirmDialogOpen}
+        title={confirmTitle}
+        description={confirmDescription}
+        onConfirm={handleConfirm}
+        confirmText="Confirmar"
+        cancelText="Cancelar"
+      />
     </Layout>
   );
 }

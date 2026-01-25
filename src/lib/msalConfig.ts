@@ -29,12 +29,10 @@ export const msalInstance = new PublicClientApplication(msalConfig);
 // Scopes requeridos para SharePoint
 // Para SPA, no se puede usar .default con scopes específicos
 // Debe usar el formato completo: https://graph.microsoft.com/ScopeName
+// Nota: openid, profile y offline_access se agregan automáticamente por MSAL
 export const graphScopes = [
   "https://graph.microsoft.com/Sites.ReadWrite.All",
   "https://graph.microsoft.com/Files.ReadWrite.All",
-  "openid",
-  "profile",
-  "offline_access",
 ];
 
 // Configuración para login

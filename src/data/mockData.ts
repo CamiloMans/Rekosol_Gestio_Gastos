@@ -4,6 +4,7 @@ export interface Empresa {
   rut: string;
   numeroContacto?: string;
   correoElectronico?: string;
+  categoria?: 'Empresa' | 'Persona Natural';
   createdAt: string;
 }
 

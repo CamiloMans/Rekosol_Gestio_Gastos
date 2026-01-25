@@ -954,6 +954,7 @@ export const empresasService = {
         rut: item.fields.RUT || item.fields.Rut || "",
         numeroContacto: item.fields.NUM_CONTACTO || item.fields.NumContacto || item.fields.NumeroContacto || undefined,
         correoElectronico: item.fields.CORREO || item.fields.Correo || item.fields.CorreoElectronico || undefined,
+        categoria: item.fields.CATEGORIA || item.fields.Categoria || undefined,
         createdAt: item.fields.CreatedAt || item.createdDateTime || "",
       }));
     } catch (error) {
@@ -969,13 +970,18 @@ export const empresasService = {
     
     try {
       // Mapeo de campos del formulario a columnas de SharePoint (nombres reales)
-      // NOM_EMPRESA, RUT, NUM_CONTACTO, CORREO
+      // NOM_EMPRESA, RUT, NUM_CONTACTO, CORREO, CATEGORIA
       const fields: any = {
         NOM_EMPRESA: empresa.razonSocial,
         RUT: empresa.rut,
         NUM_CONTACTO: empresa.numeroContacto || "",
         CORREO: empresa.correoElectronico || "",
       };
+      
+      // Agregar CATEGORIA si está definida (campo Choice)
+      if (empresa.categoria) {
+        fields.CATEGORIA = empresa.categoria;
+      }
       
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
@@ -1006,6 +1012,7 @@ export const empresasService = {
       if (empresa.rut !== undefined) fields.RUT = empresa.rut;
       if (empresa.numeroContacto !== undefined) fields.NUM_CONTACTO = empresa.numeroContacto || "";
       if (empresa.correoElectronico !== undefined) fields.CORREO = empresa.correoElectronico || "";
+      if (empresa.categoria !== undefined) fields.CATEGORIA = empresa.categoria || "";
       
       await client
         .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)

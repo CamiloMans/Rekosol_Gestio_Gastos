@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Empresa } from '@/data/mockData';
 import { Save } from 'lucide-react';
 
@@ -18,6 +19,7 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
   const [rut, setRut] = useState('');
   const [numeroContacto, setNumeroContacto] = useState('');
   const [correoElectronico, setCorreoElectronico] = useState('');
+  const [categoria, setCategoria] = useState<'Empresa' | 'Persona Natural' | ''>('');
 
   useEffect(() => {
     if (empresa) {
@@ -25,11 +27,13 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
       setRut(empresa.rut);
       setNumeroContacto(empresa.numeroContacto || '');
       setCorreoElectronico(empresa.correoElectronico || '');
+      setCategoria(empresa.categoria || '');
     } else {
       setRazonSocial('');
       setRut('');
       setNumeroContacto('');
       setCorreoElectronico('');
+      setCategoria('');
     }
   }, [empresa, open]);
 
@@ -40,6 +44,7 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
       rut,
       numeroContacto: numeroContacto || undefined,
       correoElectronico: correoElectronico || undefined,
+      categoria: categoria ? (categoria as 'Empresa' | 'Persona Natural') : undefined,
     });
     onClose();
   };
@@ -53,6 +58,19 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+          <div className="space-y-2">
+            <Label htmlFor="categoria">Categoría</Label>
+            <Select value={categoria} onValueChange={(value) => setCategoria(value as 'Empresa' | 'Persona Natural' | '')}>
+              <SelectTrigger id="categoria" className="bg-card">
+                <SelectValue placeholder="Seleccionar categoría" />
+              </SelectTrigger>
+              <SelectContent className="bg-card">
+                <SelectItem value="Empresa">Empresa</SelectItem>
+                <SelectItem value="Persona Natural">Persona Natural</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="razonSocial">Nombre Empresa *</Label>
             <Input

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { StatCard } from '@/components/StatCard';
@@ -30,9 +30,34 @@ export default function Reportes() {
     : categoriasMock;
 
   const [periodo, setPeriodo] = useState<'mensual' | 'anual'>('anual');
-  const [year, setYear] = useState('2026');
+  // Detectar el año automáticamente desde los gastos disponibles
+  const availableYear = useMemo(() => {
+    if (gastos.length > 0) {
+      const years = gastos.map(g => {
+        try {
+          return new Date(g.fecha).getFullYear().toString();
+        } catch {
+          return null;
+        }
+      }).filter((y): y is string => y !== null);
+      if (years.length > 0) {
+        // Obtener el año más reciente
+        return years.sort((a, b) => parseInt(b) - parseInt(a))[0];
+      }
+    }
+    return new Date().getFullYear().toString();
+  }, [gastos]);
+  
+  const [year, setYear] = useState(availableYear);
   const [mes, setMes] = useState('all');
   const [proyectoFiltro, setProyectoFiltro] = useState<string>('all');
+  
+  // Actualizar el año cuando cambien los gastos disponibles
+  useEffect(() => {
+    if (availableYear && availableYear !== year) {
+      setYear(availableYear);
+    }
+  }, [availableYear]);
 
   // Filtrar gastos según periodo, mes y proyecto seleccionado
   const gastosFiltrados = useMemo(() => {
@@ -140,33 +165,89 @@ export default function Reportes() {
 
   // Categorías del periodo
   const categoriasTotals = useMemo(() => {
-    if (!gastosFiltrados || gastosFiltrados.length === 0) return [];
+    if (!gastosFiltrados || gastosFiltrados.length === 0) {
+      console.log('📊 No hay gastos filtrados para categorías');
+      return [];
+    }
     
-    return categorias.map(cat => {
+    console.log('📊 Calculando categorías. Gastos filtrados:', gastosFiltrados.length);
+    console.log('📊 Categorías disponibles:', categorias.map(c => ({ id: c.id, nombre: c.nombre })));
+    console.log('📊 Primeros gastos (muestra):', gastosFiltrados.slice(0, 3).map(g => ({ 
+      id: g.id, 
+      categoria: g.categoria, 
+      empresaId: g.empresaId,
+      monto: g.monto 
+    })));
+    
+    const result = categorias.map(cat => {
       // Comparar como strings para asegurar coincidencia
-      const total = gastosFiltrados
-        .filter(g => String(g.categoria) === String(cat.id))
-        .reduce((sum, g) => sum + g.monto, 0);
+      const gastosDeCategoria = gastosFiltrados.filter(g => String(g.categoria) === String(cat.id));
+      const total = gastosDeCategoria.reduce((sum, g) => sum + g.monto, 0);
+      
+      if (gastosDeCategoria.length > 0) {
+        console.log(`📊 Categoría "${cat.nombre}" (ID: ${cat.id}): ${gastosDeCategoria.length} gastos, Total: ${total}`);
+      }
+      
       return { ...cat, total };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
+    
+    console.log('📊 Categorías con totales:', result.length);
+    return result;
   }, [categorias, gastosFiltrados]);
 
   const totalCategorias = categoriasTotals.reduce((sum, c) => sum + c.total, 0);
 
   // Empresas del periodo
   const empresasTotals = useMemo(() => {
-    if (!gastosFiltrados || gastosFiltrados.length === 0) return [];
+    if (!gastosFiltrados || gastosFiltrados.length === 0) {
+      console.log('🏢 No hay gastos filtrados para empresas');
+      return [];
+    }
     
-    return empresas.map(emp => {
+    console.log('🏢 Calculando empresas. Gastos filtrados:', gastosFiltrados.length);
+    console.log('🏢 Empresas disponibles:', empresas.map(e => ({ id: e.id, razonSocial: e.razonSocial })));
+    
+    const result = empresas.map(emp => {
       // Comparar como strings para asegurar coincidencia
-      const total = gastosFiltrados
-        .filter(g => String(g.empresaId) === String(emp.id))
-        .reduce((sum, g) => sum + g.monto, 0);
+      const gastosDeEmpresa = gastosFiltrados.filter(g => String(g.empresaId) === String(emp.id));
+      const total = gastosDeEmpresa.reduce((sum, g) => sum + g.monto, 0);
+      
+      if (gastosDeEmpresa.length > 0) {
+        console.log(`🏢 Empresa "${emp.razonSocial}" (ID: ${emp.id}): ${gastosDeEmpresa.length} gastos, Total: ${total}`);
+      }
+      
       return { ...emp, total };
     }).filter(e => e.total > 0).sort((a, b) => b.total - a.total);
+    
+    console.log('🏢 Empresas con totales:', result.length);
+    return result;
   }, [empresas, gastosFiltrados]);
 
   const totalEmpresas = empresasTotals.reduce((sum, e) => sum + e.total, 0);
+
+  // Obtener todos los años únicos de los gastos para el selector
+  // Incluir siempre 2025 y 2026, además de cualquier otro año que tenga gastos
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    
+    // Agregar siempre 2025 y 2026
+    years.add('2025');
+    years.add('2026');
+    
+    // Agregar años de los gastos disponibles
+    gastos.forEach(g => {
+      try {
+        const year = new Date(g.fecha).getFullYear().toString();
+        years.add(year);
+      } catch {
+        // Ignorar fechas inválidas
+      }
+    });
+    
+    // Ordenar de mayor a menor
+    const sortedYears = Array.from(years).sort((a, b) => parseInt(b) - parseInt(a));
+    return sortedYears;
+  }, [gastos]);
 
   // Función para oscurecer un color (reducir luminosidad en HSL)
   const darkenColor = (color: string, darkenAmount: number = 0.3): string => {
@@ -356,7 +437,9 @@ export default function Reportes() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-card">
-              <SelectItem value="2026">2026</SelectItem>
+              {availableYears.map(y => (
+                <SelectItem key={y} value={y}>{y}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Select value={proyectoFiltro} onValueChange={setProyectoFiltro}>
@@ -452,31 +535,38 @@ export default function Reportes() {
           <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
             <span className="text-muted-foreground">📊</span> Categorías del Año
           </h3>
-          <div className="space-y-4">
-            {categoriasTotals.map((cat) => {
-              const percentage = (cat.total / totalCategorias) * 100;
-              return (
-                <div key={cat.id} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <CategoryBadge categoryId={cat.id} />
-                    <div className="text-right">
-                      <p className="font-semibold">{formatCurrency(cat.total)}</p>
-                      <p className="text-sm text-muted-foreground">{percentage.toFixed(1)}%</p>
+          {categoriasTotals.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-sm">No hay gastos en categorías para el período seleccionado.</p>
+              <p className="text-xs mt-2">Verifica que los gastos tengan categorías asignadas y que coincidan con el año seleccionado.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {categoriasTotals.map((cat) => {
+                const percentage = (cat.total / totalCategorias) * 100;
+                return (
+                  <div key={cat.id} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <CategoryBadge categoryId={cat.id} />
+                      <div className="text-right">
+                        <p className="font-semibold">{formatCurrency(cat.total)}</p>
+                        <p className="text-sm text-muted-foreground">{percentage.toFixed(1)}%</p>
+                      </div>
+                    </div>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div 
+                        className="h-2 rounded-full transition-all duration-500"
+                        style={{ 
+                          width: `${percentage}%`,
+                          backgroundColor: categoryColors[cat.id] || '#3b82f6'
+                        }}
+                      />
                     </div>
                   </div>
-                  <div className="w-full bg-muted rounded-full h-2">
-                    <div 
-                      className="h-2 rounded-full transition-all duration-500"
-                      style={{ 
-                        width: `${percentage}%`,
-                        backgroundColor: categoryColors[cat.id] || '#3b82f6'
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Empresas del Año */}
@@ -484,33 +574,40 @@ export default function Reportes() {
           <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4 flex items-center gap-2">
             <span className="text-muted-foreground">🏢</span> Empresas del Año
           </h3>
-          <div className="space-y-3 sm:space-y-4">
-            {empresasTotals.map((emp) => {
-              const percentage = (emp.total / totalEmpresas) * 100;
-              return (
-                <div key={emp.id} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-sm sm:text-base">{emp.razonSocial}</p>
-                      <p className="text-xs sm:text-sm text-muted-foreground font-mono">{emp.rut}</p>
+          {empresasTotals.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-sm">No hay gastos en empresas para el período seleccionado.</p>
+              <p className="text-xs mt-2">Verifica que los gastos tengan empresas asignadas y que coincidan con el año seleccionado.</p>
+            </div>
+          ) : (
+            <div className="space-y-3 sm:space-y-4">
+              {empresasTotals.map((emp) => {
+                const percentage = (emp.total / totalEmpresas) * 100;
+                return (
+                  <div key={emp.id} className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-sm sm:text-base">{emp.razonSocial}</p>
+                        <p className="text-xs sm:text-sm text-muted-foreground font-mono">{emp.rut}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-sm sm:text-base">{formatCurrency(emp.total)}</p>
+                        <p className="text-xs sm:text-sm text-muted-foreground">{percentage.toFixed(1)}%</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="font-semibold text-sm sm:text-base">{formatCurrency(emp.total)}</p>
-                      <p className="text-xs sm:text-sm text-muted-foreground">{percentage.toFixed(1)}%</p>
+                    <div className="w-full bg-muted rounded-full h-2">
+                      <div 
+                        className="h-2 rounded-full transition-all duration-500 bg-primary"
+                        style={{ 
+                          width: `${percentage}%`
+                        }}
+                      />
                     </div>
                   </div>
-                  <div className="w-full bg-muted rounded-full h-2">
-                    <div 
-                      className="h-2 rounded-full transition-all duration-500 bg-primary"
-                      style={{ 
-                        width: `${percentage}%`
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </Layout>

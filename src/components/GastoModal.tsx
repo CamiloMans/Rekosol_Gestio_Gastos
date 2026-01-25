@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { categorias as categoriasMock, empresasData as empresasDataMock, proyectosData, Gasto, Proyecto, Empresa } from '@/data/mockData';
-import { Save, Plus, Paperclip } from 'lucide-react';
+import { Save, Plus, Paperclip, Search } from 'lucide-react';
 import { ProyectoModal } from './ProyectoModal';
 import { EmpresaModal } from './EmpresaModal';
 import { useProyectos, useEmpresas, useCategorias, useTiposDocumento, useSharePointAuth } from '@/hooks/useSharePoint';
@@ -27,9 +28,46 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
   const { categorias: categoriasSharePoint } = useCategorias();
   const { tiposDocumento: tiposDocumentoSharePoint } = useTiposDocumento();
   
+  // Estados
+  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [categoria, setCategoria] = useState('');
+  const [tipoDocumento, setTipoDocumento] = useState<string>(''); // Guardar el ID del tipo de documento
+  const [numeroDocumento, setNumeroDocumento] = useState('');
+  const [empresaId, setEmpresaId] = useState('');
+  const [proyectoId, setProyectoId] = useState('');
+  const [monto, setMonto] = useState('');
+  const [detalle, setDetalle] = useState('');
+  const [comentarioTipoDocumento, setComentarioTipoDocumento] = useState('');
+  const [proyectoModalOpen, setProyectoModalOpen] = useState(false);
+  const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
+  const [archivosAdjuntos, setArchivosAdjuntos] = useState<File[]>([]);
+  const [filtroCategoriaEmpresa, setFiltroCategoriaEmpresa] = useState<'Empresa' | 'Persona Natural' | 'all'>('all');
+  const [busquedaEmpresa, setBusquedaEmpresa] = useState('');
+  
   // Usar datos de SharePoint si está autenticado, sino usar datos mock
   const proyectos = isAuthenticated ? (proyectosSharePoint || []) : proyectosData;
-  const empresas = isAuthenticated ? (empresasSharePoint || []) : empresasDataMock;
+  const todasLasEmpresas = isAuthenticated ? (empresasSharePoint || []) : empresasDataMock;
+  
+  // Filtrar empresas según la categoría seleccionada y la búsqueda
+  const empresas = useMemo(() => {
+    let empresasFiltradas = todasLasEmpresas;
+    
+    // Filtrar por categoría
+    if (filtroCategoriaEmpresa !== 'all') {
+      empresasFiltradas = empresasFiltradas.filter(emp => emp.categoria === filtroCategoriaEmpresa);
+    }
+    
+    // Filtrar por búsqueda
+    if (busquedaEmpresa.trim() !== '') {
+      const busquedaLower = busquedaEmpresa.toLowerCase().trim();
+      empresasFiltradas = empresasFiltradas.filter(emp => 
+        emp.razonSocial.toLowerCase().includes(busquedaLower) ||
+        emp.rut.toLowerCase().includes(busquedaLower)
+      );
+    }
+    
+    return empresasFiltradas;
+  }, [todasLasEmpresas, filtroCategoriaEmpresa, busquedaEmpresa]);
   
   // Mapear categorías de SharePoint al formato esperado (id, nombre, color)
   // Asegurar que los IDs sean strings para el componente Select
@@ -60,19 +98,6 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       nombre: nombre,
     }));
   }, [isAuthenticated, tiposDocumentoSharePoint]);
-  
-  const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
-  const [categoria, setCategoria] = useState('');
-  const [tipoDocumento, setTipoDocumento] = useState<string>(''); // Guardar el ID del tipo de documento
-  const [numeroDocumento, setNumeroDocumento] = useState('');
-  const [empresaId, setEmpresaId] = useState('');
-  const [proyectoId, setProyectoId] = useState('');
-  const [monto, setMonto] = useState('');
-  const [detalle, setDetalle] = useState('');
-  const [comentarioTipoDocumento, setComentarioTipoDocumento] = useState('');
-  const [proyectoModalOpen, setProyectoModalOpen] = useState(false);
-  const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
-  const [archivosAdjuntos, setArchivosAdjuntos] = useState<File[]>([]);
 
   useEffect(() => {
     if (gasto) {
@@ -101,9 +126,31 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       setDetalle('');
       setComentarioTipoDocumento('');
       setArchivosAdjuntos([]);
+      setFiltroCategoriaEmpresa('all');
+      setBusquedaEmpresa('');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gasto, open]); // categorias está en useMemo, no necesita estar en dependencias
+  
+  // Auto-seleccionar "Persona Natural" cuando se selecciona la categoría "Honorarios"
+  useEffect(() => {
+    if (categoria) {
+      const categoriaSeleccionada = categorias.find(cat => String(cat.id) === String(categoria));
+      if (categoriaSeleccionada && categoriaSeleccionada.nombre === 'Honorarios') {
+        setFiltroCategoriaEmpresa('Persona Natural');
+      }
+    }
+  }, [categoria, categorias]);
+  
+  // Resetear el filtro y la empresa seleccionada cuando cambia el filtro
+  useEffect(() => {
+    if (filtroCategoriaEmpresa !== 'all' && empresaId) {
+      const empresaSeleccionada = todasLasEmpresas.find(e => e.id === empresaId);
+      if (empresaSeleccionada && empresaSeleccionada.categoria !== filtroCategoriaEmpresa) {
+        setEmpresaId('');
+      }
+    }
+  }, [filtroCategoriaEmpresa, todasLasEmpresas, empresaId]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -275,12 +322,12 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
           <div className="space-y-2">
             <Label htmlFor="tipoDocumento">Tipo de Documento *</Label>
             <Select 
-              value={tipoDocumento} 
+              value={tipoDocumento || undefined} 
               onValueChange={(value) => setTipoDocumento(value)} 
               required
             >
               <SelectTrigger className="bg-card" id="tipoDocumento">
-                <SelectValue placeholder="Seleccionar tipo de documento" />
+                <SelectValue placeholder="Seleccionar documento" />
               </SelectTrigger>
               <SelectContent className="bg-card">
                 {tiposDocumento.length > 0 ? (
@@ -296,18 +343,23 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                 )}
               </SelectContent>
             </Select>
-            {tipoDocumento === 'Otros' && (
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="comentarioTipoDocumento">Comentario *</Label>
-                <Input
-                  id="comentarioTipoDocumento"
-                  placeholder="Especifica el tipo de documento..."
-                  value={comentarioTipoDocumento}
-                  onChange={(e) => setComentarioTipoDocumento(e.target.value)}
-                  required
-                />
-              </div>
-            )}
+            {(() => {
+              const tipoSeleccionado = tiposDocumento.find(t => t.id === tipoDocumento);
+              const esOtros = tipoSeleccionado?.nombre === 'Otros' || tipoSeleccionado?.nombre === 'Otro';
+              return esOtros && (
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="comentarioTipoDocumento">Especificar tipo de documento *</Label>
+                  <Input
+                    id="comentarioTipoDocumento"
+                    placeholder="Ej: NOTA DE CRÉDITO, RECIBO, ETC."
+                    value={comentarioTipoDocumento}
+                    onChange={(e) => setComentarioTipoDocumento(e.target.value.toUpperCase())}
+                    required
+                    style={{ textTransform: 'uppercase' }}
+                  />
+                </div>
+              );
+            })()}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -323,18 +375,66 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="empresa">Empresa *</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="empresa">Empresa *</Label>
+              <ToggleGroup 
+                type="single" 
+                value={filtroCategoriaEmpresa} 
+                onValueChange={(value) => {
+                  if (value) {
+                    setFiltroCategoriaEmpresa(value as 'Empresa' | 'Persona Natural' | 'all');
+                  } else {
+                    setFiltroCategoriaEmpresa('all');
+                  }
+                }}
+                className="h-8"
+              >
+                <ToggleGroupItem value="all" className="text-xs px-2 py-1 h-7 data-[state=on]:bg-muted">
+                  Todas
+                </ToggleGroupItem>
+                <ToggleGroupItem value="Empresa" className="text-xs px-2 py-1 h-7 data-[state=on]:bg-muted">
+                  Empresa
+                </ToggleGroupItem>
+                <ToggleGroupItem value="Persona Natural" className="text-xs px-2 py-1 h-7 data-[state=on]:bg-muted">
+                  Persona Natural
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </div>
             <div className="flex gap-2">
               <Select value={String(empresaId || '')} onValueChange={(value) => setEmpresaId(value)} required>
                 <SelectTrigger className="flex-1 bg-card">
                   <SelectValue placeholder="Seleccionar empresa" />
                 </SelectTrigger>
-                <SelectContent className="bg-card">
-                  {empresas.map((empresa) => (
-                    <SelectItem key={empresa.id} value={String(empresa.id)}>
-                      {empresa.razonSocial}
-                    </SelectItem>
-                  ))}
+                <SelectContent className="bg-card p-0">
+                  <div className="flex items-center border-b px-3 py-2">
+                    <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                    <Input
+                      placeholder="Buscar empresa..."
+                      value={busquedaEmpresa}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        setBusquedaEmpresa(e.target.value);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      className="h-8 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+                    />
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto">
+                    {empresas.length > 0 ? (
+                      empresas.map((empresa) => (
+                        <SelectItem key={empresa.id} value={String(empresa.id)}>
+                          {empresa.razonSocial}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+                        {busquedaEmpresa.trim() !== '' 
+                          ? 'No se encontraron empresas con ese criterio'
+                          : 'No hay empresas disponibles para esta categoría'}
+                      </div>
+                    )}
+                  </div>
                 </SelectContent>
               </Select>
               <Button 
@@ -413,10 +513,11 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
             <Label htmlFor="detalle">Detalle</Label>
             <Textarea
               id="detalle"
-              placeholder="Descripción adicional del gasto..."
+              placeholder="DESCRIPCIÓN ADICIONAL DEL GASTO..."
               value={detalle}
-              onChange={(e) => setDetalle(e.target.value)}
+              onChange={(e) => setDetalle(e.target.value.toUpperCase())}
               rows={3}
+              style={{ textTransform: 'uppercase' }}
             />
           </div>
 

@@ -1,4 +1,4 @@
-import { getGraphClient, getSiteId, getAccessToken, getSharePointRestToken } from "@/lib/sharepointClient";
+import { getGraphClient, getSiteId, getAccessToken, getSharePointRestToken, getSharePointSiteUrl } from "@/lib/sharepointClient";
 import { msalInstance } from "@/lib/msalConfig";
 import type { Gasto, Empresa, Proyecto, Colaborador } from "@/data/mockData";
 
@@ -222,7 +222,7 @@ export const gastosService = {
       
       // Usar SharePoint REST API directamente para obtener attachments
       // Necesitamos un token específico para SharePoint REST API (no el de Microsoft Graph)
-      const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
+      const siteUrl = getSharePointSiteUrl();
       const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
       
       // Construir la URL de SharePoint REST API usando el nombre de la lista
@@ -348,7 +348,7 @@ export const gastosService = {
       
       // Obtener todos los items con sus attachments usando SharePoint REST API
       // Microsoft Graph API no soporta attachments en list items directamente
-      const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
+      const siteUrl = getSharePointSiteUrl();
       const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
       
       const itemsWithAttachments = await Promise.all(
@@ -783,7 +783,7 @@ export const gastosService = {
               
               // Subir el archivo usando SharePoint REST API
               // Microsoft Graph API no soporta attachments en list items
-              const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
+              const siteUrl = getSharePointSiteUrl();
               const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
               
               // Construir la URL de SharePoint REST API para subir el attachment

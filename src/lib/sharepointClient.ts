@@ -3,6 +3,30 @@ import { PublicClientApplication, AccountInfo } from "@azure/msal-browser";
 import { msalInstance, graphScopes } from "./msalConfig";
 
 /**
+ * Normaliza y valida la URL de SharePoint
+ * Asegura que tenga el protocolo https:// correcto
+ */
+export function normalizeSharePointUrl(url: string): string {
+  if (!url) {
+    return url;
+  }
+  
+  // Eliminar espacios en blanco
+  url = url.trim();
+  
+  // Si la URL no tiene protocolo, agregarlo
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    url = `https://${url}`;
+  }
+  
+  // Corregir errores comunes como "ttps://" -> "https://"
+  url = url.replace(/^ttps:\/\//, "https://");
+  url = url.replace(/^http:\/\//, "https://"); // Forzar HTTPS para SharePoint
+  
+  return url;
+}
+
+/**
  * Obtiene un token de acceso para Microsoft Graph API
  */
 export async function getAccessToken(): Promise<string> {
@@ -52,6 +76,17 @@ export async function getGraphClient(): Promise<Client> {
 }
 
 /**
+ * Obtiene la URL de SharePoint normalizada desde las variables de entorno
+ */
+export function getSharePointSiteUrl(): string {
+  let siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
+  if (!siteUrl) {
+    throw new Error("VITE_SHAREPOINT_SITE_URL no está configurado");
+  }
+  return normalizeSharePointUrl(siteUrl);
+}
+
+/**
  * Obtiene un token de acceso específico para SharePoint REST API
  * SharePoint REST API requiere un token con el scope del sitio, no de Microsoft Graph
  */
@@ -63,10 +98,8 @@ export async function getSharePointRestToken(): Promise<string> {
       throw new Error("No hay cuenta activa. Por favor, inicia sesión.");
     }
 
-    const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
-    if (!siteUrl) {
-      throw new Error("VITE_SHAREPOINT_SITE_URL no está configurado");
-    }
+    // Obtener y normalizar la URL de SharePoint
+    const siteUrl = getSharePointSiteUrl();
 
     // Construir el scope para SharePoint REST API
     // Formato: https://{tenant}.sharepoint.com/.default o https://{siteUrl}/.default
@@ -112,7 +145,8 @@ export async function getSharePointRestToken(): Promise<string> {
  * Obtiene el Site ID de SharePoint basado en la URL del sitio
  */
 export async function getSiteId(): Promise<string> {
-  const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL || "";
+  const siteUrl = getSharePointSiteUrl();
+  
   const client = await getGraphClient();
   
   // Extraer el hostname y el path del sitio

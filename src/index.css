@@ -99,9 +99,16 @@
     @apply border-border;
   }
 
-  body {
+  html, body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
+    overflow-y: auto;
+    height: 100%;
+  }
+
+  #root {
+    min-height: 100%;
   }
 }
 

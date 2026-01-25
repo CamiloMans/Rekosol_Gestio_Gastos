@@ -240,12 +240,13 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
                 required
+                className="w-full h-10"
               />
             </div>
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoría *</Label>
               <Select value={String(categoria)} onValueChange={(value) => setCategoria(value)} required>
-                <SelectTrigger className="bg-card">
+                <SelectTrigger className="bg-card w-full h-10">
                   <SelectValue placeholder="Seleccionar categoría" />
                 </SelectTrigger>
                 <SelectContent className="bg-card">

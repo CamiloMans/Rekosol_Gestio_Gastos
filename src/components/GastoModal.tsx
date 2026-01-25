@@ -232,7 +232,7 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               <Label htmlFor="fecha">Fecha *</Label>
               <Input
                 id="fecha"
@@ -240,7 +240,13 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                 value={fecha}
                 onChange={(e) => setFecha(e.target.value)}
                 required
-                className="w-full h-10"
+                className="w-full h-10 min-w-0"
+                style={{ 
+                  WebkitAppearance: 'none', 
+                  appearance: 'none',
+                  minWidth: 0,
+                  maxWidth: '100%'
+                }}
               />
             </div>
             <div className="space-y-2">

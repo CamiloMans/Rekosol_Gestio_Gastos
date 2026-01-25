@@ -18,7 +18,7 @@ export const msalConfig: Configuration = {
     knownAuthorities: tenantId ? [`login.microsoftonline.com`] : [],
   },
   cache: {
-    cacheLocation: "sessionStorage", // This configures where your cache will be stored
+    cacheLocation: "localStorage", // This configures where your cache will be stored - localStorage persiste después de cerrar el navegador
     storeAuthStateInCookie: false, // Set this to "true" if you are having issues on IE11 or Edge
   },
 };

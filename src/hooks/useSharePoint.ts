@@ -19,11 +19,24 @@ export function useSharePointAuth() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (accounts.length > 0) {
-      instance.setActiveAccount(accounts[0]);
-      setIsAuthenticated(true);
-    }
-    setIsLoading(false);
+    const checkAuth = async () => {
+      try {
+        // Verificar si hay cuentas
+        if (accounts.length > 0) {
+          instance.setActiveAccount(accounts[0]);
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.error('Error al verificar autenticación:', error);
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkAuth();
   }, [accounts, instance]);
 
   const login = async () => {
@@ -33,31 +46,21 @@ export function useSharePointAuth() {
       console.log("Tenant ID:", import.meta.env.VITE_AZURE_TENANT_ID ? "Configurado" : "FALTANTE");
       console.log("Redirect URI:", window.location.origin);
       
-      // Intentar primero con popup, si falla usar redirect
-      try {
-        const response = await instance.loginPopup({
-          ...loginRequest,
-          redirectUri: window.location.origin,
-        });
-        console.log("Login exitoso (popup):", response);
-        setIsAuthenticated(true);
-      } catch (popupError: any) {
-        console.warn("Popup falló, intentando con redirect:", popupError);
-        // Si el popup falla, usar redirect
-        await instance.loginRedirect({
-          ...loginRequest,
-          redirectUri: window.location.origin,
-        });
-        // Con redirect, la página se recargará, así que no necesitamos actualizar el estado aquí
-      }
+      // Usar redirect directamente ya que es más confiable
+      // El popup puede ser bloqueado por el navegador
+      await instance.loginRedirect({
+        ...loginRequest,
+        redirectUri: window.location.origin,
+      });
+      
+      // Con redirect, la página se redirigirá a Microsoft y luego volverá
+      // No necesitamos hacer nada más aquí, el handleRedirectPromise en main.tsx se encargará
     } catch (error: any) {
       console.error("Error al iniciar sesión:", error);
       
       // Manejar errores específicos
       if (error.errorCode === "user_cancelled") {
         throw new Error("Inicio de sesión cancelado por el usuario");
-      } else if (error.errorCode === "popup_window_error" || error.message?.includes("popup")) {
-        throw new Error("El popup fue bloqueado. Se intentará usar redirect en su lugar.");
       } else if (error.message) {
         throw new Error(error.message);
       } else {

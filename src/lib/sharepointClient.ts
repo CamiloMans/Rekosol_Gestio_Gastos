@@ -70,7 +70,17 @@ export async function getSharePointRestToken(): Promise<string> {
 
     // Construir el scope para SharePoint REST API
     // Formato: https://{tenant}.sharepoint.com/.default o https://{siteUrl}/.default
-    const url = new URL(siteUrl);
+    let url: URL;
+    try {
+      url = new URL(siteUrl);
+    } catch (error) {
+      throw new Error(`VITE_SHAREPOINT_SITE_URL no es una URL válida: ${siteUrl}`);
+    }
+    
+    if (!url.origin || url.origin === "null") {
+      throw new Error(`No se pudo obtener el origen de la URL de SharePoint: ${siteUrl}`);
+    }
+    
     const sharePointScope = `${url.origin}/.default`;
 
     try {

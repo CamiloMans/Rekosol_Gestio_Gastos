@@ -51,10 +51,12 @@ export function SharePointAuth() {
       console.log("Redirect URI:", window.location.origin);
       console.log("Client ID:", clientId);
       console.log("Tenant ID:", tenantId);
+      console.log("Scopes:", loginRequest.scopes);
       
       // Usar redirect en lugar de popup
+      // Asegurarse de que solo se pasen los scopes de Graph, sin scopes estándar
       await instance.loginRedirect({
-        ...loginRequest,
+        scopes: loginRequest.scopes,
         redirectUri: window.location.origin,
       });
       // Con redirect, la página se redirigirá a Microsoft y luego volverá

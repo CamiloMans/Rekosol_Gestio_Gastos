@@ -14,6 +14,8 @@ export const msalConfig: Configuration = {
     clientId: clientId,
     authority: tenantId ? `https://login.microsoftonline.com/${tenantId}` : "https://login.microsoftonline.com/common",
     redirectUri: window.location.origin,
+    // Asegurar que no se agreguen scopes automáticamente de manera incorrecta
+    knownAuthorities: tenantId ? [`login.microsoftonline.com`] : [],
   },
   cache: {
     cacheLocation: "sessionStorage", // This configures where your cache will be stored

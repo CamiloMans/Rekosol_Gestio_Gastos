@@ -28,9 +28,12 @@ export interface Gasto {
   fecha: string;
   empresaId: string;
   categoria: string;
-  tipoDocumento: 'Factura' | 'Boleta' | 'Orden de Compra' | 'Sin Documento' | 'Otros';
+  tipoDocumento: string; // Ahora es el ID del tipo de documento (lookup)
   numeroDocumento: string;
-  monto: number;
+  monto: number; // Mantenido para compatibilidad interna, pero se usa montoTotal en SharePoint
+  montoNeto?: number;
+  iva?: number;
+  montoTotal?: number;
   detalle?: string;
   proyectoId?: string;
   colaboradorId?: string;

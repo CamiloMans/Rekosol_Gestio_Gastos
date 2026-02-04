@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { EmpresaModal } from '@/components/EmpresaModal';
@@ -105,7 +105,26 @@ export default function Empresas() {
     categoria.nombre.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredTiposDocumento = tiposDocumento.filter(tipo =>
+  // Ordenar tipos de documento alfabéticamente, pero "Otro" o "Otros" siempre al final
+  const tiposDocumentoOrdenados = useMemo(() => {
+    return [...tiposDocumento].sort((a, b) => {
+      const nombreA = a.nombre.toLowerCase();
+      const nombreB = b.nombre.toLowerCase();
+      
+      // Si uno es "Otro" o "Otros", va al final
+      const esOtroA = nombreA === 'otro' || nombreA === 'otros';
+      const esOtroB = nombreB === 'otro' || nombreB === 'otros';
+      
+      if (esOtroA && !esOtroB) return 1; // A va después
+      if (!esOtroA && esOtroB) return -1; // B va después
+      if (esOtroA && esOtroB) return 0; // Ambos son "Otro", mantener orden
+      
+      // Ordenar alfabéticamente
+      return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
+    });
+  }, [tiposDocumento]);
+  
+  const filteredTiposDocumento = tiposDocumentoOrdenados.filter(tipo =>
     tipo.nombre.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -732,6 +751,8 @@ export default function Empresas() {
               <TableHeader>
                 <TableRow className="bg-muted/50">
                   <TableHead className="font-semibold">TIPO DE DOCUMENTO</TableHead>
+                  <TableHead className="font-semibold text-center">TIENE IMPUESTOS</TableHead>
+                  <TableHead className="font-semibold text-center">VALOR IMPUESTOS</TableHead>
                   <TableHead className="font-semibold text-center">ACCIONES</TableHead>
                 </TableRow>
               </TableHeader>
@@ -746,6 +767,26 @@ export default function Empresas() {
                           </div>
                           <span className="font-medium">{tipo.nombre}</span>
                         </div>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {tipo.tieneImpuestos ? (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Sí
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            No
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {tipo.tieneImpuestos && tipo.valorImpuestos !== undefined ? (
+                          <span className="font-medium">
+                            {(tipo.valorImpuestos * 100).toFixed(2)}%
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <div className="flex justify-center gap-1">

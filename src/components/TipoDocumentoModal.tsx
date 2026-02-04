@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Save } from 'lucide-react';
 import type { TipoDocumento } from '@/services/sharepointService';
 
@@ -15,18 +16,28 @@ interface TipoDocumentoModalProps {
 
 export function TipoDocumentoModal({ open, onClose, onSave, tipoDocumento }: TipoDocumentoModalProps) {
   const [nombre, setNombre] = useState('');
+  const [tieneImpuestos, setTieneImpuestos] = useState(false);
+  const [valorImpuestos, setValorImpuestos] = useState('');
 
   useEffect(() => {
     if (tipoDocumento) {
       setNombre(tipoDocumento.nombre);
+      setTieneImpuestos(tipoDocumento.tieneImpuestos || false);
+      setValorImpuestos(tipoDocumento.valorImpuestos?.toString() || '');
     } else {
       setNombre('');
+      setTieneImpuestos(false);
+      setValorImpuestos('');
     }
   }, [tipoDocumento, open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ nombre });
+    onSave({ 
+      nombre,
+      tieneImpuestos,
+      valorImpuestos: valorImpuestos ? parseFloat(valorImpuestos) : undefined,
+    });
     onClose();
   };
 
@@ -49,6 +60,36 @@ export function TipoDocumentoModal({ open, onClose, onSave, tipoDocumento }: Tip
               required
             />
           </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="tieneImpuestos">Tiene Impuestos</Label>
+              <Switch
+                id="tieneImpuestos"
+                checked={tieneImpuestos}
+                onCheckedChange={setTieneImpuestos}
+              />
+            </div>
+          </div>
+
+          {tieneImpuestos && (
+            <div className="space-y-2">
+              <Label htmlFor="valorImpuestos">Valor de Impuestos (decimal)</Label>
+              <Input
+                id="valorImpuestos"
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                placeholder="Ej: 0.19 para 19%"
+                value={valorImpuestos}
+                onChange={(e) => setValorImpuestos(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Ingresa el valor como decimal (ej: 0.19 para 19%, 0.21 para 21%)
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-end gap-3 pt-4 border-t">
             <Button type="button" variant="outline" onClick={onClose}>

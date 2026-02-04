@@ -339,14 +339,16 @@ export default function Gastos() {
               <TableHead className="font-semibold">EMPRESA</TableHead>
               <TableHead className="font-semibold">CATEGORÍA</TableHead>
               <TableHead className="font-semibold">DOCUMENTO</TableHead>
-              <TableHead className="font-semibold text-right">MONTO</TableHead>
+              <TableHead className="font-semibold text-right">MONTO NETO</TableHead>
+              <TableHead className="font-semibold text-right">IVA</TableHead>
+              <TableHead className="font-semibold text-right">MONTO TOTAL</TableHead>
               <TableHead className="font-semibold text-center">ACCIONES</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loadingGastos ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8">
+                <TableCell colSpan={8} className="text-center py-8">
                   <div className="flex items-center justify-center gap-2">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
                     <span className="text-muted-foreground">Cargando gastos...</span>
@@ -355,7 +357,7 @@ export default function Gastos() {
               </TableRow>
             ) : filteredGastos.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                   No se encontraron gastos
                 </TableCell>
               </TableRow>
@@ -417,7 +419,19 @@ export default function Gastos() {
                     )}
                   </TableCell>
                   <TableCell className="text-right font-semibold">
-                    {formatCurrency(gasto.monto)}
+                    {gasto.montoNeto !== undefined && gasto.montoNeto !== null 
+                      ? formatCurrency(gasto.montoNeto) 
+                      : formatCurrency(gasto.monto)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {gasto.iva !== undefined && gasto.iva !== null 
+                      ? formatCurrency(gasto.iva) 
+                      : '-'}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {gasto.montoTotal !== undefined && gasto.montoTotal !== null 
+                      ? formatCurrency(gasto.montoTotal) 
+                      : formatCurrency(gasto.monto)}
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-center gap-1">

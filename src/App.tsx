@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,11 +15,20 @@ import Login from "./pages/Login";
 
 const queryClient = new QueryClient();
 
+const DEV_MODE_KEY = 'rekosol_dev_mode';
+
 const AppRoutes = () => {
   const { isAuthenticated, isLoading } = useSharePointAuth();
+  const [devMode, setDevMode] = useState(false);
+
+  // Verificar modo desarrollador
+  useEffect(() => {
+    const devModeEnabled = localStorage.getItem(DEV_MODE_KEY) === 'true';
+    setDevMode(devModeEnabled);
+  }, []);
 
   // Mostrar loading mientras se verifica la autenticación
-  if (isLoading) {
+  if (isLoading && !devMode) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
@@ -29,8 +39,8 @@ const AppRoutes = () => {
     );
   }
 
-  // Si no está autenticado, mostrar solo la pantalla de login
-  if (!isAuthenticated) {
+  // Si no está autenticado y no está en modo desarrollador, mostrar solo la pantalla de login
+  if (!isAuthenticated && !devMode) {
     return <Login />;
   }
 

@@ -36,6 +36,9 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
   const [empresaId, setEmpresaId] = useState('');
   const [proyectoId, setProyectoId] = useState('');
   const [monto, setMonto] = useState('');
+  const [montoNeto, setMontoNeto] = useState('');
+  const [montoIva, setMontoIva] = useState('');
+  const [montoTotal, setMontoTotal] = useState('');
   const [detalle, setDetalle] = useState('');
   const [comentarioTipoDocumento, setComentarioTipoDocumento] = useState('');
   const [proyectoModalOpen, setProyectoModalOpen] = useState(false);
@@ -85,19 +88,85 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
   
   // Usar tipos de documento de SharePoint si está autenticado, sino usar datos mock
   // IMPORTANTE: Necesitamos los IDs para guardar en el campo lookup
+  // Ordenar alfabéticamente, pero "Otro" o "Otros" siempre al final
   const tiposDocumento = useMemo(() => {
+    let tipos: Array<{ id: string; nombre: string; tieneImpuestos?: boolean; valorImpuestos?: number }> = [];
+    
     if (isAuthenticated && tiposDocumentoSharePoint.length > 0) {
-      return tiposDocumentoSharePoint.map(tipo => ({
+      tipos = tiposDocumentoSharePoint.map(tipo => ({
         id: String(tipo.id), // Convertir a string para el Select
         nombre: tipo.nombre,
+        tieneImpuestos: tipo.tieneImpuestos,
+        valorImpuestos: tipo.valorImpuestos,
+      }));
+    } else {
+      // Para datos mock, crear objetos con id y nombre
+      tipos = tiposDocumentoMock.map((nombre, index) => ({
+        id: String(index + 1), // IDs temporales para mock
+        nombre: nombre,
+        tieneImpuestos: false,
+        valorImpuestos: undefined,
       }));
     }
-    // Para datos mock, crear objetos con id y nombre
-    return tiposDocumentoMock.map((nombre, index) => ({
-      id: String(index + 1), // IDs temporales para mock
-      nombre: nombre,
-    }));
+    
+    // Ordenar alfabéticamente, pero "Otro" o "Otros" siempre al final
+    return tipos.sort((a, b) => {
+      const nombreA = a.nombre.toLowerCase();
+      const nombreB = b.nombre.toLowerCase();
+      
+      // Si uno es "Otro" o "Otros", va al final
+      const esOtroA = nombreA === 'otro' || nombreA === 'otros';
+      const esOtroB = nombreB === 'otro' || nombreB === 'otros';
+      
+      if (esOtroA && !esOtroB) return 1; // A va después
+      if (!esOtroA && esOtroB) return -1; // B va después
+      if (esOtroA && esOtroB) return 0; // Ambos son "Otro", mantener orden
+      
+      // Ordenar alfabéticamente
+      return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
+    });
   }, [isAuthenticated, tiposDocumentoSharePoint]);
+  
+  // Obtener el tipo de documento seleccionado con su información de impuestos
+  const tipoDocumentoSeleccionado = useMemo(() => {
+    const encontrado = tiposDocumento.find(t => t.id === tipoDocumento);
+    if (encontrado) {
+      console.log('🔍 Tipo documento seleccionado:', encontrado.nombre);
+      console.log('🔍 Tiene impuestos:', encontrado.tieneImpuestos);
+      console.log('🔍 Valor impuesto:', encontrado.valorImpuestos);
+    }
+    return encontrado;
+  }, [tiposDocumento, tipoDocumento]);
+  
+  const aplicaImpuesto = tipoDocumentoSeleccionado?.tieneImpuestos || false;
+  const valorImpuesto = tipoDocumentoSeleccionado?.valorImpuestos || 0;
+  
+  // Limpiar campos de impuestos cuando cambia el tipo de documento
+  useEffect(() => {
+    if (!aplicaImpuesto) {
+      setMontoNeto('');
+      setMontoIva('');
+      setMontoTotal('');
+    }
+  }, [aplicaImpuesto]);
+  
+  // Calcular IVA y total cuando cambia el monto neto
+  useEffect(() => {
+    if (aplicaImpuesto && montoNeto) {
+      const neto = parseFloat(montoNeto) || 0;
+      const iva = neto * valorImpuesto;
+      const total = neto + iva;
+      
+      setMontoIva(iva.toFixed(0));
+      setMontoTotal(total.toFixed(0));
+      setMonto(total.toFixed(0)); // El monto total se guarda en el campo monto
+    } else if (aplicaImpuesto && !montoNeto) {
+      // Si aplica impuesto pero no hay monto neto, limpiar IVA y total
+      setMontoIva('');
+      setMontoTotal('');
+      setMonto('');
+    }
+  }, [montoNeto, aplicaImpuesto, valorImpuesto]);
 
   useEffect(() => {
     if (gasto) {
@@ -113,6 +182,22 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       setEmpresaId(gasto.empresaId);
       setProyectoId(gasto.proyectoId || '');
       setMonto(gasto.monto.toString());
+      // Cargar valores de impuestos si existen
+      if (gasto.montoNeto !== undefined && gasto.montoNeto !== null) {
+        setMontoNeto(gasto.montoNeto.toString());
+      } else {
+        setMontoNeto('');
+      }
+      if (gasto.iva !== undefined && gasto.iva !== null) {
+        setMontoIva(gasto.iva.toString());
+      } else {
+        setMontoIva('');
+      }
+      if (gasto.montoTotal !== undefined && gasto.montoTotal !== null) {
+        setMontoTotal(gasto.montoTotal.toString());
+      } else {
+        setMontoTotal('');
+      }
       setDetalle(gasto.detalle || '');
       setComentarioTipoDocumento(gasto.comentarioTipoDocumento || '');
     } else {
@@ -123,6 +208,9 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       setEmpresaId('');
       setProyectoId('');
       setMonto('');
+      setMontoNeto('');
+      setMontoIva('');
+      setMontoTotal('');
       setDetalle('');
       setComentarioTipoDocumento('');
       setArchivosAdjuntos([]);
@@ -169,6 +257,15 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
     }));
     
     console.log("💾 Guardando gasto con tipo de documento ID:", tipoDocumento, "tipo:", typeof tipoDocumento);
+    
+    // Calcular valores de impuestos si aplica
+    const montoNetoValue = aplicaImpuesto && montoNeto ? parseInt(montoNeto) : undefined;
+    const ivaValue = aplicaImpuesto && montoIva ? parseInt(montoIva) : undefined;
+    // MONTO_TOTAL: si aplica impuesto usa montoTotal, sino usa el monto ingresado
+    const montoTotalValue = aplicaImpuesto && montoTotal 
+      ? parseInt(montoTotal) 
+      : parseInt(monto); // Si no aplica impuesto, el monto ingresado es el total
+    
     onSave({
       fecha,
       categoria: categoria, // Guardar el ID para campos lookup
@@ -176,7 +273,10 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       numeroDocumento,
       empresaId,
       proyectoId: proyectoId || undefined,
-      monto: parseInt(monto),
+      monto: montoTotalValue, // Mantener monto para compatibilidad interna, pero será igual a montoTotal
+      montoNeto: montoNetoValue,
+      iva: ivaValue,
+      montoTotal: montoTotalValue, // Siempre guardar el monto total
       detalle,
       comentarioTipoDocumento: esOtros && comentarioTipoDocumento ? comentarioTipoDocumento : undefined,
       archivosAdjuntos: archivosFormateados.length > 0 ? archivosFormateados : undefined,
@@ -451,15 +551,27 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
           <div className="space-y-2">
             <Label htmlFor="monto">Monto (CLP) *</Label>
             <div className="flex gap-2">
-              <Input
-                id="monto"
-                type="number"
-                placeholder="0"
-                value={monto}
-                onChange={(e) => setMonto(e.target.value)}
-                required
-                className="flex-1"
-              />
+              {aplicaImpuesto ? (
+                <Input
+                  id="monto"
+                  type="number"
+                  placeholder="0"
+                  value={montoNeto}
+                  onChange={(e) => setMontoNeto(e.target.value)}
+                  required
+                  className="flex-1"
+                />
+              ) : (
+                <Input
+                  id="monto"
+                  type="number"
+                  placeholder="0"
+                  value={monto}
+                  onChange={(e) => setMonto(e.target.value)}
+                  required
+                  className="flex-1"
+                />
+              )}
               <input
                 type="file"
                 id="archivosAdjuntos"
@@ -483,6 +595,38 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                 <Paperclip size={18} />
               </Button>
             </div>
+            {aplicaImpuesto && (
+              <div className="mt-3 space-y-2 rounded-lg border bg-muted/30 p-3">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Monto Neto:</span>
+                  <span className="font-medium">
+                    {montoNeto && !isNaN(parseFloat(montoNeto)) && parseFloat(montoNeto) > 0
+                      ? parseInt(montoNeto).toLocaleString('es-CL')
+                      : '0'} CLP
+                  </span>
+                </div>
+                {valorImpuesto > 0 && (
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Monto IVA ({(valorImpuesto * 100).toFixed(2)}%):</span>
+                    <span className="font-medium">
+                      {montoIva && !isNaN(parseFloat(montoIva)) && parseFloat(montoIva) > 0
+                        ? parseInt(montoIva).toLocaleString('es-CL')
+                        : '0'} CLP
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-sm pt-2 border-t">
+                  <span className="font-semibold">Monto Total:</span>
+                  <span className="font-bold text-lg">
+                    {montoTotal && !isNaN(parseFloat(montoTotal)) && parseFloat(montoTotal) > 0
+                      ? parseInt(montoTotal).toLocaleString('es-CL')
+                      : montoNeto && !isNaN(parseFloat(montoNeto)) && parseFloat(montoNeto) > 0
+                      ? parseInt(montoNeto).toLocaleString('es-CL')
+                      : '0'} CLP
+                  </span>
+                </div>
+              </div>
+            )}
             {archivosAdjuntos.length > 0 && (
               <div className="flex flex-wrap gap-2 mt-2">
                 {archivosAdjuntos.map((archivo, index) => (

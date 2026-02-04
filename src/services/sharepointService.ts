@@ -469,7 +469,11 @@ export const gastosService = {
           categoria: categoriaId, // Usar el ID del lookup
           tipoDocumento: tipoDocumentoId || "Factura", // Usar el ID del lookup (necesitaremos mapear a nombre después)
           numeroDocumento: item.fields.NUMERO_DOCUMENTO || item.fields.NumeroDocumento || item.fields.numeroDocumento || "",
-          monto: item.fields.MONTO || item.fields.Monto || item.fields.monto || 0,
+          // Usar MONTO_TOTAL como principal, con fallback a MONTO para compatibilidad con datos antiguos
+          montoTotal: item.fields.MONTO_TOTAL || item.fields.MontoTotal || item.fields.montoTotal || item.fields.MONTO || item.fields.Monto || item.fields.monto || 0,
+          monto: item.fields.MONTO_TOTAL || item.fields.MontoTotal || item.fields.montoTotal || item.fields.MONTO || item.fields.Monto || item.fields.monto || 0, // Para compatibilidad interna
+          montoNeto: item.fields.MONTO_NETO || item.fields.MontoNeto || item.fields.montoNeto || undefined,
+          iva: item.fields.IVA || item.fields.Iva || item.fields.iva || undefined,
           detalle: item.fields.DETALLE || item.fields.Detalle || item.fields.detalle || "",
           proyectoId: proyectoId || undefined, // Usar el ID del lookup
           colaboradorId: colaboradorId || undefined, // Usar el ID del lookup de PERSONA
@@ -567,10 +571,22 @@ export const gastosService = {
       }
       
       // Campos básicos que NO son lookup
+      // Ya no guardamos MONTO, solo MONTO_TOTAL
       const fields: any = {
         FECHA: gasto.fecha,
-        MONTO: gasto.monto,
+        // MONTO_TOTAL siempre se guarda (es el monto total, con o sin impuestos)
+        MONTO_TOTAL: gasto.montoTotal !== undefined && gasto.montoTotal !== null 
+          ? gasto.montoTotal 
+          : gasto.monto, // Fallback al monto si no hay montoTotal
       };
+      
+      // Agregar campos de impuestos si están definidos
+      if (gasto.montoNeto !== undefined && gasto.montoNeto !== null) {
+        fields.MONTO_NETO = gasto.montoNeto;
+      }
+      if (gasto.iva !== undefined && gasto.iva !== null) {
+        fields.IVA = gasto.iva;
+      }
       
       // Agregar campos de texto simples (estos deberían funcionar)
       if (gasto.detalle && gasto.detalle.trim() !== "") {
@@ -615,6 +631,20 @@ export const gastosService = {
       if (fieldsToSend.ArchivosAdjuntos) {
         console.log("⚠️ Removiendo campo ArchivosAdjuntos (se agregará después)...");
         delete fieldsToSend.ArchivosAdjuntos;
+      }
+      
+      // Remover cualquier referencia al campo MONTO (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)
+      if (fieldsToSend.MONTO) {
+        console.log("⚠️ Removiendo campo MONTO (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        delete fieldsToSend.MONTO;
+      }
+      if (fieldsToSend.Monto) {
+        console.log("⚠️ Removiendo campo Monto (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        delete fieldsToSend.Monto;
+      }
+      if (fieldsToSend.monto) {
+        console.log("⚠️ Removiendo campo monto (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        delete fieldsToSend.monto;
       }
       
       // Remover todos los campos lookup del POST inicial (SharePoint rechaza lookup en POST)
@@ -886,8 +916,18 @@ export const gastosService = {
       if (gasto.numeroDocumento !== undefined) {
         fields.NUMERO_DOCUMENTO = gasto.numeroDocumento;
       }
-      if (gasto.monto !== undefined) {
-        fields.MONTO = gasto.monto;
+      // Ya no guardamos MONTO, solo MONTO_TOTAL
+      if (gasto.montoTotal !== undefined && gasto.montoTotal !== null) {
+        fields.MONTO_TOTAL = gasto.montoTotal;
+      } else if (gasto.monto !== undefined) {
+        // Fallback: si no hay montoTotal pero hay monto, usar monto como total
+        fields.MONTO_TOTAL = gasto.monto;
+      }
+      if (gasto.montoNeto !== undefined && gasto.montoNeto !== null) {
+        fields.MONTO_NETO = gasto.montoNeto;
+      }
+      if (gasto.iva !== undefined && gasto.iva !== null) {
+        fields.IVA = gasto.iva;
       }
       if (gasto.detalle !== undefined) {
         fields.DETALLE = gasto.detalle || "";
@@ -900,6 +940,20 @@ export const gastosService = {
       }
       if (gasto.archivosAdjuntos !== undefined && gasto.archivosAdjuntos.length > 0) {
         fields.ArchivosAdjuntos = JSON.stringify(gasto.archivosAdjuntos);
+      }
+      
+      // Remover cualquier referencia al campo MONTO (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)
+      if (fields.MONTO) {
+        console.log("⚠️ Removiendo campo MONTO del update (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        delete fields.MONTO;
+      }
+      if (fields.Monto) {
+        console.log("⚠️ Removiendo campo Monto del update (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        delete fields.Monto;
+      }
+      if (fields.monto) {
+        console.log("⚠️ Removiendo campo monto del update (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        delete fields.monto;
       }
       
       const finalFields = fields;
@@ -1346,6 +1400,8 @@ export const categoriasService = {
 export interface TipoDocumento {
   id: string;
   nombre: string;
+  tieneImpuestos?: boolean;
+  valorImpuestos?: number;
 }
 
 export const tiposDocumentoService = {
@@ -1363,6 +1419,8 @@ export const tiposDocumentoService = {
       return response.value.map((item: any) => ({
         id: item.id,
         nombre: item.fields.NOM_DOCUMENTO || item.fields.NomDocumento || item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "",
+        tieneImpuestos: item.fields.APLICA_IMPUESTO || item.fields.AplicaImpuesto || item.fields.aplicaImpuesto || false,
+        valorImpuestos: item.fields.VALOR_IMPUESTO || item.fields.ValorImpuesto || item.fields.valorImpuesto || undefined,
       }));
     } catch (error) {
       console.error("Error al obtener tipos de documento:", error);
@@ -1379,6 +1437,14 @@ export const tiposDocumentoService = {
       const fields: any = {
         NOM_DOCUMENTO: tipoDocumento.nombre,
       };
+      
+      // Agregar campos de impuestos si están definidos
+      if (tipoDocumento.tieneImpuestos !== undefined) {
+        fields.APLICA_IMPUESTO = tipoDocumento.tieneImpuestos;
+      }
+      if (tipoDocumento.valorImpuestos !== undefined) {
+        fields.VALOR_IMPUESTO = tipoDocumento.valorImpuestos;
+      }
       
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
@@ -1404,6 +1470,8 @@ export const tiposDocumentoService = {
     try {
       const fields: any = {};
       if (tipoDocumento.nombre !== undefined) fields.NOM_DOCUMENTO = tipoDocumento.nombre;
+      if (tipoDocumento.tieneImpuestos !== undefined) fields.APLICA_IMPUESTO = tipoDocumento.tieneImpuestos;
+      if (tipoDocumento.valorImpuestos !== undefined) fields.VALOR_IMPUESTO = tipoDocumento.valorImpuestos;
       
       await client
         .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)

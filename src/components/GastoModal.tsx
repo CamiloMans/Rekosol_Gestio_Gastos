@@ -695,7 +695,13 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       
       <ConfirmDialog
         open={confirmDialogOpen}
-        onOpenChange={setConfirmDialogOpen}
+        onOpenChange={(open) => {
+          setConfirmDialogOpen(open);
+          if (!open) {
+            // Limpiar el estado cuando se cierra el diálogo (cancelar o cerrar)
+            setArchivoAEliminar(null);
+          }
+        }}
         title="Eliminar archivo adjunto"
         description={
           archivoAEliminar !== null && archivosAdjuntos[archivoAEliminar]

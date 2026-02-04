@@ -192,6 +192,8 @@ export default function Gastos() {
   };
 
   const handleDelete = (id: string) => {
+    console.log("🔍 handleDelete llamado con id:", id);
+    
     if (!isAuthenticated || authLoading) {
       toast({
         title: "No autenticado",
@@ -210,34 +212,49 @@ export default function Gastos() {
       const detalle = gasto.detalle || 'Sin detalle';
       const nombreEmpresa = empresa?.razonSocial || 'Empresa desconocida';
       
+      console.log("📝 Configurando diálogo para:", nombreEmpresa, montoTotal);
       setConfirmTitle("Eliminar gasto");
       setConfirmDescription(
         `¿Estás seguro de que deseas eliminar el gasto de "${nombreEmpresa}" por ${formatCurrency(montoTotal)} (${detalle})? Esta acción no se puede deshacer.`
       );
     } else {
+      console.log("⚠️ Gasto no encontrado");
       setConfirmTitle("Eliminar gasto");
       setConfirmDescription("¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer.");
     }
     
+    console.log("💾 Guardando ID del gasto a eliminar:", id);
     setGastoAEliminar(id);
+    console.log("🔓 Abriendo diálogo de confirmación");
     setConfirmDialogOpen(true);
+    console.log("✅ handleDelete completado - NO se eliminó nada aún");
   };
 
   const confirmDelete = async () => {
-    if (!gastoAEliminar) return;
+    console.log("🚨 confirmDelete llamado - ELIMINANDO AHORA");
+    console.log("🗑️ ID del gasto a eliminar:", gastoAEliminar);
+    
+    if (!gastoAEliminar) {
+      console.log("❌ No hay gasto para eliminar, saliendo");
+      return;
+    }
     
     const gasto = gastos.find(g => g.id === gastoAEliminar);
     const empresa = gasto ? empresasData?.find(e => e.id === gasto.empresaId) : null;
     const nombreEmpresa = empresa?.razonSocial || 'el gasto';
     
+    console.log("🔥 Ejecutando eliminación para:", nombreEmpresa);
+    
     try {
       await gastosHook.deleteGasto(gastoAEliminar);
+      console.log("✅ Gasto eliminado exitosamente");
       toast({
         title: "Gasto eliminado",
         description: `El gasto de "${nombreEmpresa}" se ha eliminado correctamente`,
         variant: "success",
       });
     } catch (error) {
+      console.log("❌ Error al eliminar:", error);
       toast({
         title: "Error",
         description: error instanceof Error ? error.message : "Error al eliminar el gasto",
@@ -245,6 +262,7 @@ export default function Gastos() {
       });
     } finally {
       setGastoAEliminar(null);
+      console.log("🧹 Limpieza completada");
     }
   };
 
@@ -462,7 +480,17 @@ export default function Gastos() {
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(gasto)}>
                         <Pencil size={16} />
                       </Button>
-                      <Button variant="ghost" size="icon" onClick={() => handleDelete(gasto.id)}>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        type="button"
+                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          console.log("🗑️ Botón de eliminar clickeado - abriendo diálogo");
+                          handleDelete(gasto.id);
+                        }}
+                      >
                         <Trash2 size={16} className="text-destructive" />
                       </Button>
                     </div>
@@ -497,7 +525,13 @@ export default function Gastos() {
       
       <ConfirmDialog
         open={confirmDialogOpen}
-        onOpenChange={setConfirmDialogOpen}
+        onOpenChange={(open) => {
+          setConfirmDialogOpen(open);
+          if (!open) {
+            // Limpiar el estado cuando se cierra el diálogo (cancelar o cerrar)
+            setGastoAEliminar(null);
+          }
+        }}
         title={confirmTitle || "Eliminar gasto"}
         description={confirmDescription || "¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer."}
         onConfirm={confirmDelete}

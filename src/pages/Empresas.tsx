@@ -43,7 +43,7 @@ export default function Empresas() {
   const [editingTipoDocumento, setEditingTipoDocumento] = useState<TipoDocumento | undefined>();
   const [searchTerm, setSearchTerm] = useState('');
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<(() => void) | null>(null);
+  const [itemToDelete, setItemToDelete] = useState<{ id: string; type: 'empresa' | 'proyecto' | 'colaborador' | 'categoria' | 'tipoDocumento' } | null>(null);
   const [confirmTitle, setConfirmTitle] = useState('');
   const [confirmDescription, setConfirmDescription] = useState('');
 
@@ -189,6 +189,8 @@ export default function Empresas() {
   };
 
   const handleDelete = (id: string) => {
+    console.log("🔍 handleDelete llamado con id:", id, "vista:", vista);
+    
     if (vista === 'empresas') {
       if (!isAuthenticated) {
         toast({
@@ -202,25 +204,13 @@ export default function Empresas() {
       const empresa = empresas.find(e => e.id === id);
       const nombreEmpresa = empresa?.razonSocial || 'esta empresa';
       
+      console.log("📝 Configurando diálogo para eliminar empresa:", nombreEmpresa);
       setConfirmTitle("Eliminar empresa");
       setConfirmDescription(`¿Estás seguro de que deseas eliminar la empresa "${nombreEmpresa}"? Esta acción no se puede deshacer.`);
-      setConfirmAction(async () => {
-        try {
-          await deleteEmpresa(id);
-          toast({
-            title: "Empresa eliminada",
-            description: `La empresa "${nombreEmpresa}" se ha eliminado correctamente`,
-            variant: "success",
-          });
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: error instanceof Error ? error.message : "Error al eliminar la empresa",
-            variant: "destructive",
-          });
-        }
-      });
+      setItemToDelete({ id, type: 'empresa' });
+      console.log("🔓 Abriendo diálogo de confirmación");
       setConfirmDialogOpen(true);
+      console.log("✅ handleDelete completado - NO se eliminó nada aún");
     } else if (vista === 'proyectos') {
       if (!isAuthenticated) {
         toast({
@@ -234,25 +224,13 @@ export default function Empresas() {
       const proyecto = proyectos.find(p => p.id === id);
       const nombreProyecto = proyecto?.nombre || 'este proyecto';
       
+      console.log("📝 Configurando diálogo para eliminar proyecto:", nombreProyecto);
       setConfirmTitle("Eliminar proyecto");
       setConfirmDescription(`¿Estás seguro de que deseas eliminar el proyecto "${nombreProyecto}"? Esta acción no se puede deshacer.`);
-      setConfirmAction(async () => {
-        try {
-          await deleteProyecto(id);
-          toast({
-            title: "Proyecto eliminado",
-            description: `El proyecto "${nombreProyecto}" se ha eliminado correctamente`,
-            variant: "success",
-          });
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: error instanceof Error ? error.message : "Error al eliminar el proyecto",
-            variant: "destructive",
-          });
-        }
-      });
+      setItemToDelete({ id, type: 'proyecto' });
+      console.log("🔓 Abriendo diálogo de confirmación");
       setConfirmDialogOpen(true);
+      console.log("✅ handleDelete completado - NO se eliminó nada aún");
     } else if (vista === 'colaboradores') {
       if (!isAuthenticated) {
         toast({
@@ -266,25 +244,13 @@ export default function Empresas() {
       const colaborador = colaboradores.find(c => c.id === id);
       const nombreColaborador = colaborador?.nombre || 'este colaborador';
       
+      console.log("📝 Configurando diálogo para eliminar colaborador:", nombreColaborador);
       setConfirmTitle("Eliminar colaborador");
       setConfirmDescription(`¿Estás seguro de que deseas eliminar al colaborador "${nombreColaborador}"? Esta acción no se puede deshacer.`);
-      setConfirmAction(async () => {
-        try {
-          await deleteColaborador(id);
-          toast({
-            title: "Colaborador eliminado",
-            description: `El colaborador "${nombreColaborador}" se ha eliminado correctamente`,
-            variant: "success",
-          });
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: error instanceof Error ? error.message : "Error al eliminar el colaborador",
-            variant: "destructive",
-          });
-        }
-      });
+      setItemToDelete({ id, type: 'colaborador' });
+      console.log("🔓 Abriendo diálogo de confirmación");
       setConfirmDialogOpen(true);
+      console.log("✅ handleDelete completado - NO se eliminó nada aún");
     } else if (vista === 'categorias') {
       if (!isAuthenticated) {
         toast({
@@ -298,25 +264,13 @@ export default function Empresas() {
       const categoria = categorias.find(c => c.id === id);
       const nombreCategoria = categoria?.nombre || 'esta categoría';
       
+      console.log("📝 Configurando diálogo para eliminar categoría:", nombreCategoria);
       setConfirmTitle("Eliminar categoría");
       setConfirmDescription(`¿Estás seguro de que deseas eliminar la categoría "${nombreCategoria}"? Esta acción no se puede deshacer.`);
-      setConfirmAction(async () => {
-        try {
-          await deleteCategoria(id);
-          toast({
-            title: "Categoría eliminada",
-            description: `La categoría "${nombreCategoria}" se ha eliminado correctamente`,
-            variant: "success",
-          });
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: error instanceof Error ? error.message : "Error al eliminar la categoría",
-            variant: "destructive",
-          });
-        }
-      });
+      setItemToDelete({ id, type: 'categoria' });
+      console.log("🔓 Abriendo diálogo de confirmación");
       setConfirmDialogOpen(true);
+      console.log("✅ handleDelete completado - NO se eliminó nada aún");
     } else if (vista === 'tiposDocumento') {
       if (!isAuthenticated) {
         toast({
@@ -330,32 +284,90 @@ export default function Empresas() {
       const tipoDocumento = tiposDocumento.find(t => t.id === id);
       const nombreTipoDocumento = tipoDocumento?.nombre || 'este tipo de documento';
       
+      console.log("📝 Configurando diálogo para eliminar tipo de documento:", nombreTipoDocumento);
       setConfirmTitle("Eliminar tipo de documento");
       setConfirmDescription(`¿Estás seguro de que deseas eliminar el tipo de documento "${nombreTipoDocumento}"? Esta acción no se puede deshacer.`);
-      setConfirmAction(async () => {
-        try {
-          await deleteTipoDocumento(id);
-          toast({
-            title: "Tipo de documento eliminado",
-            description: `El tipo de documento "${nombreTipoDocumento}" se ha eliminado correctamente`,
-            variant: "success",
-          });
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: error instanceof Error ? error.message : "Error al eliminar el tipo de documento",
-            variant: "destructive",
-          });
-        }
-      });
+      setItemToDelete({ id, type: 'tipoDocumento' });
+      console.log("🔓 Abriendo diálogo de confirmación");
       setConfirmDialogOpen(true);
+      console.log("✅ handleDelete completado - NO se eliminó nada aún");
     }
   };
 
   const handleConfirm = async () => {
-    if (confirmAction) {
-      await confirmAction();
-      setConfirmAction(null);
+    console.log("🚨 Empresas - handleConfirm llamado");
+    console.log("🗑️ Item a eliminar:", itemToDelete);
+    
+    if (!itemToDelete) {
+      console.log("⚠️ Empresas - No hay item para eliminar");
+      return;
+    }
+
+    const { id, type } = itemToDelete;
+    
+    try {
+      if (type === 'empresa') {
+        console.log("🔥 Empresas - Eliminando empresa:", id);
+        const empresa = empresas.find(e => e.id === id);
+        const nombreEmpresa = empresa?.razonSocial || 'la empresa';
+        await deleteEmpresa(id);
+        toast({
+          title: "Empresa eliminada",
+          description: `La empresa "${nombreEmpresa}" se ha eliminado correctamente`,
+          variant: "success",
+        });
+      } else if (type === 'proyecto') {
+        console.log("🔥 Empresas - Eliminando proyecto:", id);
+        const proyecto = proyectos.find(p => p.id === id);
+        const nombreProyecto = proyecto?.nombre || 'el proyecto';
+        await deleteProyecto(id);
+        toast({
+          title: "Proyecto eliminado",
+          description: `El proyecto "${nombreProyecto}" se ha eliminado correctamente`,
+          variant: "success",
+        });
+      } else if (type === 'colaborador') {
+        console.log("🔥 Empresas - Eliminando colaborador:", id);
+        const colaborador = colaboradores.find(c => c.id === id);
+        const nombreColaborador = colaborador?.nombre || 'el colaborador';
+        await deleteColaborador(id);
+        toast({
+          title: "Colaborador eliminado",
+          description: `El colaborador "${nombreColaborador}" se ha eliminado correctamente`,
+          variant: "success",
+        });
+      } else if (type === 'categoria') {
+        console.log("🔥 Empresas - Eliminando categoría:", id);
+        const categoria = categorias.find(c => c.id === id);
+        const nombreCategoria = categoria?.nombre || 'la categoría';
+        await deleteCategoria(id);
+        toast({
+          title: "Categoría eliminada",
+          description: `La categoría "${nombreCategoria}" se ha eliminado correctamente`,
+          variant: "success",
+        });
+      } else if (type === 'tipoDocumento') {
+        console.log("🔥 Empresas - Eliminando tipo de documento:", id);
+        const tipoDocumento = tiposDocumento.find(t => t.id === id);
+        const nombreTipoDocumento = tipoDocumento?.nombre || 'el tipo de documento';
+        await deleteTipoDocumento(id);
+        toast({
+          title: "Tipo de documento eliminado",
+          description: `El tipo de documento "${nombreTipoDocumento}" se ha eliminado correctamente`,
+          variant: "success",
+        });
+      }
+      console.log("✅ Empresas - Eliminación completada");
+    } catch (error) {
+      console.log("❌ Empresas - Error al eliminar:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Error al eliminar",
+        variant: "destructive",
+      });
+    } finally {
+      setItemToDelete(null);
+      console.log("🧹 Empresas - Limpieza completada");
     }
   };
 
@@ -635,7 +647,16 @@ export default function Empresas() {
                         <Button variant="ghost" size="icon" onClick={() => handleEdit(empresa)}>
                           <Pencil size={16} />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(empresa.id)}>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDelete(empresa.id);
+                          }}
+                          type="button"
+                        >
                           <Trash2 size={16} className="text-destructive" />
                         </Button>
                       </div>
@@ -670,7 +691,16 @@ export default function Empresas() {
                         <Button variant="ghost" size="icon" onClick={() => handleEditProyecto(proyecto)}>
                           <Pencil size={16} />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(proyecto.id)}>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDelete(proyecto.id);
+                          }}
+                          type="button"
+                        >
                           <Trash2 size={16} className="text-destructive" />
                         </Button>
                       </div>
@@ -711,7 +741,16 @@ export default function Empresas() {
                         <Button variant="ghost" size="icon" onClick={() => handleEditColaborador(colaborador)}>
                           <Pencil size={16} />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(colaborador.id)}>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDelete(colaborador.id);
+                          }}
+                          type="button"
+                        >
                           <Trash2 size={16} className="text-destructive" />
                         </Button>
                       </div>
@@ -764,7 +803,16 @@ export default function Empresas() {
                         <Button variant="ghost" size="icon" onClick={() => handleEditCategoria(categoria)}>
                           <Pencil size={16} />
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(categoria.id)}>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleDelete(categoria.id);
+                          }}
+                          type="button"
+                        >
                           <Trash2 size={16} className="text-destructive" />
                         </Button>
                       </div>
@@ -820,7 +868,16 @@ export default function Empresas() {
                           <Button variant="ghost" size="icon" onClick={() => handleEditTipoDocumento(tipo)}>
                             <Pencil size={16} />
                           </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(tipo.id)}>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleDelete(tipo.id);
+                            }}
+                            type="button"
+                          >
                             <Trash2 size={16} className="text-destructive" />
                           </Button>
                         </div>
@@ -895,11 +952,23 @@ export default function Empresas() {
       
       <ConfirmDialog
         open={confirmDialogOpen}
-        onOpenChange={setConfirmDialogOpen}
+        onOpenChange={(open) => {
+          console.log("🔄 Empresas - ConfirmDialog onOpenChange, open:", open);
+          setConfirmDialogOpen(open);
+          if (!open) {
+            // Limpiar el estado cuando se cierra el diálogo
+            console.log("🧹 Empresas - Limpiando estado del diálogo");
+            setTimeout(() => {
+              setItemToDelete(null);
+              setConfirmTitle('');
+              setConfirmDescription('');
+            }, 100);
+          }
+        }}
         title={confirmTitle}
         description={confirmDescription}
         onConfirm={handleConfirm}
-        confirmText="Confirmar"
+        confirmText="Eliminar"
         cancelText="Cancelar"
       />
     </Layout>

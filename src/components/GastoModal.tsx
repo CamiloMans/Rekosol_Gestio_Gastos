@@ -10,6 +10,7 @@ import { categorias as categoriasMock, empresasData as empresasDataMock, proyect
 import { Save, Plus, Paperclip, Search } from 'lucide-react';
 import { ProyectoModal } from './ProyectoModal';
 import { EmpresaModal } from './EmpresaModal';
+import { ConfirmDialog } from './ConfirmDialog';
 import { useProyectos, useEmpresas, useCategorias, useTiposDocumento, useSharePointAuth } from '@/hooks/useSharePoint';
 
 interface GastoModalProps {
@@ -46,6 +47,8 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
   const [archivosAdjuntos, setArchivosAdjuntos] = useState<File[]>([]);
   const [filtroCategoriaEmpresa, setFiltroCategoriaEmpresa] = useState<'Empresa' | 'Persona Natural' | 'all'>('all');
   const [busquedaEmpresa, setBusquedaEmpresa] = useState('');
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [archivoAEliminar, setArchivoAEliminar] = useState<number | null>(null);
   
   // Usar datos de SharePoint si está autenticado, sino usar datos mock
   const proyectos = isAuthenticated ? (proyectosSharePoint || []) : proyectosData;
@@ -641,8 +644,8 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                       size="icon"
                       className="h-4 w-4"
                       onClick={() => {
-                        const nuevosArchivos = archivosAdjuntos.filter((_, i) => i !== index);
-                        setArchivosAdjuntos(nuevosArchivos);
+                        setArchivoAEliminar(index);
+                        setConfirmDialogOpen(true);
                       }}
                     >
                       ×
@@ -688,6 +691,26 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
         open={empresaModalOpen}
         onClose={() => setEmpresaModalOpen(false)}
         onSave={handleSaveEmpresa}
+      />
+      
+      <ConfirmDialog
+        open={confirmDialogOpen}
+        onOpenChange={setConfirmDialogOpen}
+        title="Eliminar archivo adjunto"
+        description={
+          archivoAEliminar !== null && archivosAdjuntos[archivoAEliminar]
+            ? `¿Estás seguro de que deseas eliminar el archivo "${archivosAdjuntos[archivoAEliminar].name}"? Esta acción no se puede deshacer.`
+            : "¿Estás seguro de que deseas eliminar este archivo adjunto? Esta acción no se puede deshacer."
+        }
+        onConfirm={() => {
+          if (archivoAEliminar !== null) {
+            const nuevosArchivos = archivosAdjuntos.filter((_, i) => i !== archivoAEliminar);
+            setArchivosAdjuntos(nuevosArchivos);
+            setArchivoAEliminar(null);
+          }
+        }}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
       />
     </>
   );

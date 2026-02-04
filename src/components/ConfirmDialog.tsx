@@ -34,6 +34,10 @@ export function ConfirmDialog({
     onOpenChange(false);
   };
 
+  const handleCancel = () => {
+    onOpenChange(false);
+  };
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent className="bg-card">
@@ -49,7 +53,7 @@ export function ConfirmDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>{cancelText}</AlertDialogCancel>
+          <AlertDialogCancel onClick={handleCancel}>{cancelText}</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
             className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"

@@ -86,14 +86,22 @@ export default function Empresas() {
     }
   }, [errorEmpresas, errorProyectos, errorColaboradores, errorCategorias, errorTiposDocumento]);
 
-  const filteredEmpresas = empresas.filter(empresa => 
-    empresa.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    empresa.rut.includes(searchTerm)
-  );
+  const filteredEmpresas = useMemo(() => {
+    return empresas
+      .filter(empresa => 
+        empresa.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        empresa.rut.includes(searchTerm)
+      )
+      .sort((a, b) => a.razonSocial.localeCompare(b.razonSocial, 'es', { sensitivity: 'base' }));
+  }, [empresas, searchTerm]);
 
-  const filteredProyectos = proyectos.filter(proyecto =>
-    proyecto.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProyectos = useMemo(() => {
+    return proyectos
+      .filter(proyecto =>
+        proyecto.nombre.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+  }, [proyectos, searchTerm]);
 
   const filteredColaboradores = colaboradores.filter(colaborador =>
     colaborador.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -101,9 +109,13 @@ export default function Empresas() {
     colaborador.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredCategorias = categorias.filter(categoria =>
-    categoria.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredCategorias = useMemo(() => {
+    return categorias
+      .filter(categoria =>
+        categoria.nombre.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+  }, [categorias, searchTerm]);
 
   // Ordenar tipos de documento alfabéticamente, pero "Otro" o "Otros" siempre al final
   const tiposDocumentoOrdenados = useMemo(() => {
@@ -187,14 +199,17 @@ export default function Empresas() {
         return;
       }
       
+      const empresa = empresas.find(e => e.id === id);
+      const nombreEmpresa = empresa?.razonSocial || 'esta empresa';
+      
       setConfirmTitle("Eliminar empresa");
-      setConfirmDescription("¿Estás seguro de que deseas eliminar esta empresa? Esta acción no se puede deshacer.");
+      setConfirmDescription(`¿Estás seguro de que deseas eliminar la empresa "${nombreEmpresa}"? Esta acción no se puede deshacer.`);
       setConfirmAction(async () => {
         try {
           await deleteEmpresa(id);
           toast({
             title: "Empresa eliminada",
-            description: "La empresa se ha eliminado correctamente",
+            description: `La empresa "${nombreEmpresa}" se ha eliminado correctamente`,
             variant: "success",
           });
         } catch (error) {
@@ -216,14 +231,17 @@ export default function Empresas() {
         return;
       }
       
+      const proyecto = proyectos.find(p => p.id === id);
+      const nombreProyecto = proyecto?.nombre || 'este proyecto';
+      
       setConfirmTitle("Eliminar proyecto");
-      setConfirmDescription("¿Estás seguro de que deseas eliminar este proyecto? Esta acción no se puede deshacer.");
+      setConfirmDescription(`¿Estás seguro de que deseas eliminar el proyecto "${nombreProyecto}"? Esta acción no se puede deshacer.`);
       setConfirmAction(async () => {
         try {
           await deleteProyecto(id);
           toast({
             title: "Proyecto eliminado",
-            description: "El proyecto se ha eliminado correctamente",
+            description: `El proyecto "${nombreProyecto}" se ha eliminado correctamente`,
             variant: "success",
           });
         } catch (error) {
@@ -245,14 +263,17 @@ export default function Empresas() {
         return;
       }
       
+      const colaborador = colaboradores.find(c => c.id === id);
+      const nombreColaborador = colaborador?.nombre || 'este colaborador';
+      
       setConfirmTitle("Eliminar colaborador");
-      setConfirmDescription("¿Estás seguro de que deseas eliminar este colaborador? Esta acción no se puede deshacer.");
+      setConfirmDescription(`¿Estás seguro de que deseas eliminar al colaborador "${nombreColaborador}"? Esta acción no se puede deshacer.`);
       setConfirmAction(async () => {
         try {
           await deleteColaborador(id);
           toast({
             title: "Colaborador eliminado",
-            description: "El colaborador se ha eliminado correctamente",
+            description: `El colaborador "${nombreColaborador}" se ha eliminado correctamente`,
             variant: "success",
           });
         } catch (error) {
@@ -274,14 +295,17 @@ export default function Empresas() {
         return;
       }
       
+      const categoria = categorias.find(c => c.id === id);
+      const nombreCategoria = categoria?.nombre || 'esta categoría';
+      
       setConfirmTitle("Eliminar categoría");
-      setConfirmDescription("¿Estás seguro de que deseas eliminar esta categoría? Esta acción no se puede deshacer.");
+      setConfirmDescription(`¿Estás seguro de que deseas eliminar la categoría "${nombreCategoria}"? Esta acción no se puede deshacer.`);
       setConfirmAction(async () => {
         try {
           await deleteCategoria(id);
           toast({
             title: "Categoría eliminada",
-            description: "La categoría se ha eliminado correctamente",
+            description: `La categoría "${nombreCategoria}" se ha eliminado correctamente`,
             variant: "success",
           });
         } catch (error) {
@@ -303,14 +327,17 @@ export default function Empresas() {
         return;
       }
       
+      const tipoDocumento = tiposDocumento.find(t => t.id === id);
+      const nombreTipoDocumento = tipoDocumento?.nombre || 'este tipo de documento';
+      
       setConfirmTitle("Eliminar tipo de documento");
-      setConfirmDescription("¿Estás seguro de que deseas eliminar este tipo de documento? Esta acción no se puede deshacer.");
+      setConfirmDescription(`¿Estás seguro de que deseas eliminar el tipo de documento "${nombreTipoDocumento}"? Esta acción no se puede deshacer.`);
       setConfirmAction(async () => {
         try {
           await deleteTipoDocumento(id);
           toast({
             title: "Tipo de documento eliminado",
-            description: "El tipo de documento se ha eliminado correctamente",
+            description: `El tipo de documento "${nombreTipoDocumento}" se ha eliminado correctamente`,
             variant: "success",
           });
         } catch (error) {

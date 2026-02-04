@@ -70,6 +70,8 @@ export default function Gastos() {
   const [documentoSeleccionado, setDocumentoSeleccionado] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [gastoAEliminar, setGastoAEliminar] = useState<string | null>(null);
+  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmDescription, setConfirmDescription] = useState('');
 
   // Mostrar errores
   useEffect(() => {
@@ -199,6 +201,24 @@ export default function Gastos() {
       return;
     }
     
+    const gasto = gastos.find(g => g.id === id);
+    if (gasto) {
+      const empresa = empresasData?.find(e => e.id === gasto.empresaId);
+      const montoTotal = gasto.montoTotal !== undefined && gasto.montoTotal !== null 
+        ? gasto.montoTotal 
+        : gasto.monto;
+      const detalle = gasto.detalle || 'Sin detalle';
+      const nombreEmpresa = empresa?.razonSocial || 'Empresa desconocida';
+      
+      setConfirmTitle("Eliminar gasto");
+      setConfirmDescription(
+        `¿Estás seguro de que deseas eliminar el gasto de "${nombreEmpresa}" por ${formatCurrency(montoTotal)} (${detalle})? Esta acción no se puede deshacer.`
+      );
+    } else {
+      setConfirmTitle("Eliminar gasto");
+      setConfirmDescription("¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer.");
+    }
+    
     setGastoAEliminar(id);
     setConfirmDialogOpen(true);
   };
@@ -206,11 +226,15 @@ export default function Gastos() {
   const confirmDelete = async () => {
     if (!gastoAEliminar) return;
     
+    const gasto = gastos.find(g => g.id === gastoAEliminar);
+    const empresa = gasto ? empresasData?.find(e => e.id === gasto.empresaId) : null;
+    const nombreEmpresa = empresa?.razonSocial || 'el gasto';
+    
     try {
       await gastosHook.deleteGasto(gastoAEliminar);
       toast({
         title: "Gasto eliminado",
-        description: "El gasto se ha eliminado correctamente",
+        description: `El gasto de "${nombreEmpresa}" se ha eliminado correctamente`,
         variant: "success",
       });
     } catch (error) {
@@ -474,8 +498,8 @@ export default function Gastos() {
       <ConfirmDialog
         open={confirmDialogOpen}
         onOpenChange={setConfirmDialogOpen}
-        title="Eliminar gasto"
-        description="¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer."
+        title={confirmTitle || "Eliminar gasto"}
+        description={confirmDescription || "¿Estás seguro de que deseas eliminar este gasto? Esta acción no se puede deshacer."}
         onConfirm={confirmDelete}
         confirmText="Eliminar"
         cancelText="Cancelar"

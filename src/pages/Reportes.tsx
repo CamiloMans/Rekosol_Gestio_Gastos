@@ -249,6 +249,13 @@ export default function Reportes() {
     return sortedYears;
   }, [gastos]);
 
+  // Ordenar proyectos alfabéticamente por nombre
+  const proyectosOrdenados = useMemo(() => {
+    return [...proyectos].sort((a, b) => 
+      a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+    );
+  }, [proyectos]);
+
   // Función para oscurecer un color (reducir luminosidad en HSL)
   const darkenColor = (color: string, darkenAmount: number = 0.3): string => {
     // Si es un color hexadecimal
@@ -449,7 +456,7 @@ export default function Reportes() {
             </SelectTrigger>
             <SelectContent className="bg-card">
               <SelectItem value="all">Todos los proyectos</SelectItem>
-              {proyectos.map((proyecto) => (
+              {proyectosOrdenados.map((proyecto) => (
                 <SelectItem key={proyecto.id} value={proyecto.id}>
                   {proyecto.nombre}
                 </SelectItem>

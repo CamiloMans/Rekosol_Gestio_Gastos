@@ -18,7 +18,7 @@ export function CategoriaModal({ open, onClose, onSave, categoria }: CategoriaMo
 
   useEffect(() => {
     if (categoria) {
-      setNombre(categoria.nombre);
+      setNombre(categoria.nombre ? categoria.nombre.toUpperCase() : '');
     } else {
       setNombre('');
     }
@@ -47,7 +47,7 @@ export function CategoriaModal({ open, onClose, onSave, categoria }: CategoriaMo
               id="nombre"
               placeholder="Nombre de la categoría"
               value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
+              onChange={(e) => setNombre(e.target.value.toUpperCase())}
               required
             />
           </div>

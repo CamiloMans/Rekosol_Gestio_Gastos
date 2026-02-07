@@ -18,7 +18,7 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
 
   useEffect(() => {
     if (proyecto) {
-      setNombre(proyecto.nombre);
+      setNombre(proyecto.nombre ? proyecto.nombre.toUpperCase() : '');
     } else {
       setNombre('');
     }
@@ -45,7 +45,7 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
               id="nombre"
               placeholder="Nombre del proyecto"
               value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
+              onChange={(e) => setNombre(e.target.value.toUpperCase())}
               required
             />
           </div>
@@ -64,6 +64,9 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
     </Dialog>
   );
 }
+
+
+
 
 
 

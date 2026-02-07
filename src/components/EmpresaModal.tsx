@@ -23,7 +23,7 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
 
   useEffect(() => {
     if (empresa) {
-      setRazonSocial(empresa.razonSocial);
+      setRazonSocial(empresa.razonSocial ? empresa.razonSocial.toUpperCase() : '');
       setRut(empresa.rut);
       setNumeroContacto(empresa.numeroContacto || '');
       setCorreoElectronico(empresa.correoElectronico || '');
@@ -77,7 +77,7 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
               id="razonSocial"
               placeholder="Ej: Sodimac"
               value={razonSocial}
-              onChange={(e) => setRazonSocial(e.target.value)}
+              onChange={(e) => setRazonSocial(e.target.value.toUpperCase())}
               required
             />
           </div>

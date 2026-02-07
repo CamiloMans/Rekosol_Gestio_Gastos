@@ -21,7 +21,7 @@ export function TipoDocumentoModal({ open, onClose, onSave, tipoDocumento }: Tip
 
   useEffect(() => {
     if (tipoDocumento) {
-      setNombre(tipoDocumento.nombre);
+      setNombre(tipoDocumento.nombre ? tipoDocumento.nombre.toUpperCase() : '');
       setTieneImpuestos(tipoDocumento.tieneImpuestos || false);
       setValorImpuestos(tipoDocumento.valorImpuestos?.toString() || '');
     } else {
@@ -56,7 +56,7 @@ export function TipoDocumentoModal({ open, onClose, onSave, tipoDocumento }: Tip
               id="nombre"
               placeholder="Nombre del tipo de documento"
               value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
+              onChange={(e) => setNombre(e.target.value.toUpperCase())}
               required
             />
           </div>

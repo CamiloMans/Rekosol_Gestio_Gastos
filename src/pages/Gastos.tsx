@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Search, Filter, Pencil, Trash2, FileText, Paperclip } from 'lucide-react';
 import { DocumentoViewer } from '@/components/DocumentoViewer';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { useGastos, useEmpresas, useColaboradores, useSharePointAuth, useTiposDocumento } from '@/hooks/useSharePoint';
+import { useGastos, useEmpresas, useColaboradores, useSharePointAuth, useTiposDocumento, useProyectos } from '@/hooks/useSharePoint';
 import { toast } from '@/hooks/use-toast';
 import { gastosService } from '@/services/sharepointService';
 
@@ -32,6 +32,7 @@ export default function Gastos() {
   const empresasHook = useEmpresas();
   const tiposDocumentoHook = useTiposDocumento();
   const colaboradoresHook = useColaboradores();
+  const proyectosHook = useProyectos();
   
   // Extraer valores de forma segura
   const gastosSharePoint = gastosHook.gastos || [];
@@ -41,6 +42,7 @@ export default function Gastos() {
   const loadingEmpresas = empresasHook.loading || false;
   const tiposDocumentoSharePoint = tiposDocumentoHook.tiposDocumento || [];
   const colaboradoresSharePoint = colaboradoresHook.colaboradores || [];
+  const proyectosSharePoint = proyectosHook.proyectos || [];
   
   // Crear un mapeo de ID a nombre para tipos de documento
   const tiposDocumentoMap = useMemo(() => {
@@ -56,6 +58,7 @@ export default function Gastos() {
   const gastos = (isAuthenticated && !authLoading && !loadingGastos) ? gastosSharePoint : gastosData;
   const empresasData = (isAuthenticated && !authLoading && !loadingEmpresas) ? empresasSharePoint : empresasDataMock;
   const colaboradoresData = (isAuthenticated && !authLoading) ? colaboradoresSharePoint : colaboradoresDataMock;
+  const proyectosData = (isAuthenticated && !authLoading) ? proyectosSharePoint : [];
   
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGasto, setEditingGasto] = useState<Gasto | undefined>();
@@ -64,6 +67,7 @@ export default function Gastos() {
   const [filterEmpresa, setFilterEmpresa] = useState('all');
   const [filterTipoDoc, setFilterTipoDoc] = useState('all');
   const [filterColaborador, setFilterColaborador] = useState('all');
+  const [filterProyecto, setFilterProyecto] = useState('all');
   const [filterMes, setFilterMes] = useState('all');
   const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
   const [documentoViewerOpen, setDocumentoViewerOpen] = useState(false);
@@ -102,6 +106,7 @@ export default function Gastos() {
     const matchesEmpresa = filterEmpresa === 'all' || gasto.empresaId === filterEmpresa;
     const matchesTipoDoc = filterTipoDoc === 'all' || gasto.tipoDocumento === filterTipoDoc;
     const matchesColaborador = filterColaborador === 'all' || String(gasto.colaboradorId || '') === String(filterColaborador);
+    const matchesProyecto = filterProyecto === 'all' || String(gasto.proyectoId || '') === String(filterProyecto);
     
     // Filtrar por mes
     let matchesMes = true;
@@ -118,9 +123,9 @@ export default function Gastos() {
         }
     }
 
-    return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesColaborador && matchesMes;
+    return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesColaborador && matchesProyecto && matchesMes;
   });
-  }, [gastos, empresasData, searchTerm, filterCategoria, filterEmpresa, filterTipoDoc, filterMes]);
+  }, [gastos, empresasData, searchTerm, filterCategoria, filterEmpresa, filterTipoDoc, filterColaborador, filterProyecto, filterMes]);
 
   // Obtener meses únicos de los gastos para el filtro
   const mesesDisponibles = useMemo(() => {
@@ -142,6 +147,13 @@ export default function Gastos() {
       })
       .sort((a, b) => b.key.localeCompare(a.key)); // Ordenar de más reciente a más antiguo
   }, [gastos]);
+
+  // Ordenar proyectos alfabéticamente
+  const proyectosOrdenados = useMemo(() => {
+    return [...proyectosData].sort((a, b) => 
+      a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+    );
+  }, [proyectosData]);
 
   const handleSaveGasto = async (newGasto: Omit<Gasto, 'id'>) => {
     try {
@@ -328,6 +340,18 @@ export default function Gastos() {
             </SelectContent>
           </Select>
 
+          <Select value={filterProyecto} onValueChange={setFilterProyecto}>
+            <SelectTrigger className="bg-card">
+              <SelectValue placeholder="Todos los proyectos" />
+            </SelectTrigger>
+            <SelectContent className="bg-card">
+              <SelectItem value="all">Todos los proyectos</SelectItem>
+              {proyectosOrdenados.map((proyecto) => (
+                <SelectItem key={proyecto.id} value={proyecto.id}>{proyecto.nombre}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select value={filterTipoDoc} onValueChange={setFilterTipoDoc}>
             <SelectTrigger className="bg-card">
               <SelectValue placeholder="Todos los tipos" />
@@ -378,8 +402,8 @@ export default function Gastos() {
           <TableHeader>
             <TableRow className="bg-muted/50">
               <TableHead className="font-semibold">FECHA</TableHead>
-              <TableHead className="font-semibold">EMPRESA</TableHead>
               <TableHead className="font-semibold">CATEGORÍA</TableHead>
+              <TableHead className="font-semibold">EMPRESA</TableHead>
               <TableHead className="font-semibold">DOCUMENTO</TableHead>
               <TableHead className="font-semibold text-right">MONTO NETO</TableHead>
               <TableHead className="font-semibold text-right">IVA</TableHead>
@@ -418,13 +442,13 @@ export default function Gastos() {
                     </div>
                   </TableCell>
                   <TableCell>
+                    <CategoryBadge categoryId={gasto.categoria} />
+                  </TableCell>
+                  <TableCell>
                     <div>
                       <p className="font-medium">{empresa?.razonSocial}</p>
                       <p className="text-sm text-muted-foreground">{empresa?.rut}</p>
                     </div>
-                  </TableCell>
-                  <TableCell>
-                    <CategoryBadge categoryId={gasto.categoria} />
                   </TableCell>
                   <TableCell>
                     {gasto.archivosAdjuntos && gasto.archivosAdjuntos.length > 0 ? (

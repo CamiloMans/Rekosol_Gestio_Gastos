@@ -54,7 +54,15 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
   const proyectos = isAuthenticated ? (proyectosSharePoint || []) : proyectosData;
   const todasLasEmpresas = isAuthenticated ? (empresasSharePoint || []) : empresasDataMock;
   
+  // Ordenar proyectos alfabéticamente
+  const proyectosOrdenados = useMemo(() => {
+    return [...proyectos].sort((a, b) => 
+      a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+    );
+  }, [proyectos]);
+  
   // Filtrar empresas según la categoría seleccionada y la búsqueda
+  // Ordenar empresas alfabéticamente
   const empresas = useMemo(() => {
     let empresasFiltradas = todasLasEmpresas;
     
@@ -72,21 +80,32 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       );
     }
     
-    return empresasFiltradas;
+    // Ordenar alfabéticamente por razón social
+    return empresasFiltradas.sort((a, b) => 
+      a.razonSocial.localeCompare(b.razonSocial, 'es', { sensitivity: 'base' })
+    );
   }, [todasLasEmpresas, filtroCategoriaEmpresa, busquedaEmpresa]);
   
   // Mapear categorías de SharePoint al formato esperado (id, nombre, color)
   // Asegurar que los IDs sean strings para el componente Select
   // Usar useMemo para evitar recrear el array en cada render
+  // Ordenar categorías alfabéticamente
   const categorias = useMemo(() => {
+    let categoriasMapeadas;
     if (isAuthenticated && categoriasSharePoint.length > 0) {
-      return categoriasSharePoint.map(cat => ({
+      categoriasMapeadas = categoriasSharePoint.map(cat => ({
         id: String(cat.id), // Convertir a string para el Select
         nombre: cat.nombre,
         color: cat.color || `bg-category-${cat.id}`,
       }));
+    } else {
+      categoriasMapeadas = categoriasMock;
     }
-    return categoriasMock;
+    
+    // Ordenar alfabéticamente por nombre
+    return categoriasMapeadas.sort((a, b) => 
+      a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+    );
   }, [isAuthenticated, categoriasSharePoint]);
   
   // Usar tipos de documento de SharePoint si está autenticado, sino usar datos mock
@@ -363,7 +382,7 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                   <SelectValue placeholder="Seleccionar proyecto" />
                 </SelectTrigger>
                 <SelectContent className="bg-card">
-                  {proyectos.map((proyecto) => (
+                  {proyectosOrdenados.map((proyecto) => (
                     <SelectItem key={proyecto.id} value={String(proyecto.id)}>
                       {proyecto.nombre}
                     </SelectItem>

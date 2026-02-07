@@ -893,70 +893,107 @@ export const gastosService = {
     const listId = await getListId(LISTS.GASTOS);
     
     try {
-      // Mapeo de campos usando los nombres reales de SharePoint
+      // Obtener nombres internos de las columnas lookup (igual que en create)
+      const categoriaColumnName = await getColumnInternalName(listId, "CATEGORIA");
+      const empresaColumnName = await getColumnInternalName(listId, "EMPRESA");
+      const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
+      const tipoDocumentoColumnName = await getColumnInternalName(listId, "TIPO_DOCUMENTO");
+      
+      // Campos básicos que NO son lookup
       const fields: any = {};
       
-      if (gasto.fecha !== undefined) {
+      if (gasto.fecha !== undefined && gasto.fecha !== null && gasto.fecha !== '') {
         fields.FECHA = gasto.fecha;
       }
+      
+      if (gasto.numeroDocumento !== undefined && gasto.numeroDocumento !== null && gasto.numeroDocumento !== '') {
+        fields.NUMERO_DOCUMENTO = gasto.numeroDocumento;
+      }
+      
+      // Ya no guardamos MONTO, solo MONTO_TOTAL
+      if (gasto.montoTotal !== undefined && gasto.montoTotal !== null) {
+        fields.MONTO_TOTAL = gasto.montoTotal;
+      } else if (gasto.monto !== undefined && gasto.monto !== null) {
+        // Fallback: si no hay montoTotal pero hay monto, usar monto como total
+        fields.MONTO_TOTAL = gasto.monto;
+      }
+      
+      if (gasto.montoNeto !== undefined && gasto.montoNeto !== null) {
+        fields.MONTO_NETO = gasto.montoNeto;
+      }
+      
+      if (gasto.iva !== undefined && gasto.iva !== null) {
+        fields.IVA = gasto.iva;
+      }
+      
+      if (gasto.detalle !== undefined && gasto.detalle !== null && gasto.detalle.trim() !== '') {
+        fields.DETALLE = gasto.detalle;
+      }
+      
+      if (gasto.comentarioTipoDocumento !== undefined && gasto.comentarioTipoDocumento !== null && gasto.comentarioTipoDocumento.trim() !== '') {
+        fields.OTRO = gasto.comentarioTipoDocumento;
+      }
+      
+      // Preparar campos lookup (usando formato LookupId)
+      const lookupFields: any = {};
+      
+      // CATEGORIA
       if (gasto.categoria !== undefined && gasto.categoria !== null && gasto.categoria !== '') {
-        // CATEGORIA es un campo lookup vinculado a la lista CATEGORIAS, necesitamos el ID del elemento
-        // El ID debe ser un número para campos lookup en SharePoint
         const parsed = Number(gasto.categoria);
         if (!isNaN(parsed) && parsed > 0) {
-          fields.CATEGORIA = parsed;
+          lookupFields[`${categoriaColumnName}LookupId`] = parsed;
           console.log("📝 Actualizando categoría con ID:", parsed);
         } else {
           console.warn("⚠️ ID de categoría inválido para actualización:", gasto.categoria);
         }
       }
-      if (gasto.tipoDocumento !== undefined) {
-        fields.TIPO_DOCUMENTO = gasto.tipoDocumento;
-      }
-      if (gasto.numeroDocumento !== undefined) {
-        fields.NUMERO_DOCUMENTO = gasto.numeroDocumento;
-      }
-      // Ya no guardamos MONTO, solo MONTO_TOTAL
-      if (gasto.montoTotal !== undefined && gasto.montoTotal !== null) {
-        fields.MONTO_TOTAL = gasto.montoTotal;
-      } else if (gasto.monto !== undefined) {
-        // Fallback: si no hay montoTotal pero hay monto, usar monto como total
-        fields.MONTO_TOTAL = gasto.monto;
-      }
-      if (gasto.montoNeto !== undefined && gasto.montoNeto !== null) {
-        fields.MONTO_NETO = gasto.montoNeto;
-      }
-      if (gasto.iva !== undefined && gasto.iva !== null) {
-        fields.IVA = gasto.iva;
-      }
-      if (gasto.detalle !== undefined) {
-        fields.DETALLE = gasto.detalle || "";
-      }
-      if (gasto.proyectoId !== undefined) {
-        fields.PROYECTO = gasto.proyectoId || "";
-      }
-      if (gasto.comentarioTipoDocumento !== undefined) {
-        fields.OTRO = gasto.comentarioTipoDocumento || "";
-      }
-      if (gasto.archivosAdjuntos !== undefined && gasto.archivosAdjuntos.length > 0) {
-        fields.ArchivosAdjuntos = JSON.stringify(gasto.archivosAdjuntos);
+      
+      // EMPRESA
+      if (gasto.empresaId !== undefined && gasto.empresaId !== null && gasto.empresaId !== '') {
+        const parsed = Number(gasto.empresaId);
+        if (!isNaN(parsed) && parsed > 0) {
+          lookupFields[`${empresaColumnName}LookupId`] = parsed;
+          console.log("📝 Actualizando empresa con ID:", parsed);
+        } else {
+          console.warn("⚠️ ID de empresa inválido para actualización:", gasto.empresaId);
+        }
       }
       
-      // Remover cualquier referencia al campo MONTO (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)
-      if (fields.MONTO) {
-        console.log("⚠️ Removiendo campo MONTO del update (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
-        delete fields.MONTO;
-      }
-      if (fields.Monto) {
-        console.log("⚠️ Removiendo campo Monto del update (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
-        delete fields.Monto;
-      }
-      if (fields.monto) {
-        console.log("⚠️ Removiendo campo monto del update (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
-        delete fields.monto;
+      // PROYECTO
+      if (gasto.proyectoId !== undefined && gasto.proyectoId !== null && gasto.proyectoId !== '') {
+        const parsed = Number(gasto.proyectoId);
+        if (!isNaN(parsed) && parsed > 0) {
+          lookupFields[`${proyectoColumnName}LookupId`] = parsed;
+          console.log("📝 Actualizando proyecto con ID:", parsed);
+        } else {
+          console.warn("⚠️ ID de proyecto inválido para actualización:", gasto.proyectoId);
+        }
       }
       
-      const finalFields = fields;
+      // TIPO_DOCUMENTO
+      if (gasto.tipoDocumento !== undefined && gasto.tipoDocumento !== null && gasto.tipoDocumento !== '') {
+        const parsed = Number(gasto.tipoDocumento);
+        if (!isNaN(parsed) && parsed > 0) {
+          lookupFields[`${tipoDocumentoColumnName}LookupId`] = parsed;
+          console.log("📝 Actualizando tipo documento con ID:", parsed);
+        } else {
+          console.warn("⚠️ ID de tipo documento inválido para actualización:", gasto.tipoDocumento);
+        }
+      }
+      
+      // Limpiar campos: no enviar undefined, null o strings vacíos
+      const cleanFields: any = {};
+      Object.keys(fields).forEach(key => {
+        const value = fields[key];
+        if (value !== undefined && value !== null && value !== '') {
+          cleanFields[key] = value;
+        }
+      });
+      
+      // Combinar campos normales y lookup
+      const finalFields = { ...cleanFields, ...lookupFields };
+      
+      console.log("📤 Campos a actualizar:", JSON.stringify(finalFields, null, 2));
       
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
@@ -968,6 +1005,12 @@ export const gastosService = {
       } as Gasto;
     } catch (error) {
       console.error("Error al actualizar gasto:", error);
+      if (error instanceof Error) {
+        console.error("Detalles del error:", error.message);
+      }
+      if ((error as any)?.body) {
+        console.error("Cuerpo del error:", JSON.stringify((error as any).body, null, 2));
+      }
       throw error;
     }
   },

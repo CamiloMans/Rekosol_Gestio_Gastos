@@ -172,27 +172,55 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
     }
   }, [aplicaImpuesto]);
   
-  // Calcular IVA y total cuando cambia el monto neto
+  // Calcular Monto Neto e IVA cuando cambia el Monto Total (campo monto)
   useEffect(() => {
-    if (aplicaImpuesto && montoNeto) {
-      const neto = parseFloat(montoNeto) || 0;
-      const iva = neto * valorImpuesto;
-      const total = neto + iva;
-      
-      setMontoIva(iva.toFixed(0));
-      setMontoTotal(total.toFixed(0));
-      setMonto(total.toFixed(0)); // El monto total se guarda en el campo monto
-    } else if (aplicaImpuesto && !montoNeto) {
-      // Si aplica impuesto pero no hay monto neto, limpiar IVA y total
+    if (aplicaImpuesto && monto) {
+      const total = parseFloat(monto) || 0;
+      if (total > 0 && valorImpuesto > 0) {
+        // Calcular neto: total / (1 + valorImpuesto)
+        const neto = total / (1 + valorImpuesto);
+        const iva = total - neto;
+        
+        setMontoNeto(neto.toFixed(0));
+        setMontoIva(iva.toFixed(0));
+        setMontoTotal(total.toFixed(0));
+      } else {
+        setMontoNeto('');
+        setMontoIva('');
+        setMontoTotal('');
+      }
+    } else if (aplicaImpuesto && !monto) {
+      // Si aplica impuesto pero no hay monto total, limpiar neto e IVA
+      setMontoNeto('');
       setMontoIva('');
       setMontoTotal('');
-      setMonto('');
+    } else if (!aplicaImpuesto && monto) {
+      // Si no aplica impuesto, el monto es el total
+      setMontoTotal(monto);
+      setMontoNeto('');
+      setMontoIva('');
     }
-  }, [montoNeto, aplicaImpuesto, valorImpuesto]);
+  }, [monto, aplicaImpuesto, valorImpuesto]);
 
   useEffect(() => {
     if (gasto) {
-      setFecha(gasto.fecha);
+      // Convertir la fecha al formato YYYY-MM-DD para el input de tipo date
+      let fechaFormateada = '';
+      if (gasto.fecha) {
+        try {
+          const fecha = new Date(gasto.fecha);
+          if (!isNaN(fecha.getTime())) {
+            fechaFormateada = fecha.toISOString().split('T')[0];
+          } else {
+            // Si ya está en formato YYYY-MM-DD, usarlo directamente
+            fechaFormateada = gasto.fecha.split('T')[0];
+          }
+        } catch (e) {
+          // Si hay error, intentar usar la fecha directamente
+          fechaFormateada = gasto.fecha.split('T')[0];
+        }
+      }
+      setFecha(fechaFormateada || new Date().toISOString().split('T')[0]);
       // La categoría viene como ID desde SharePoint (campo lookup)
       // Buscar la categoría por ID y asegurar que sea string
       // Usar categorias del scope actual (no en dependencias para evitar loop)
@@ -203,23 +231,18 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       setNumeroDocumento(gasto.numeroDocumento);
       setEmpresaId(gasto.empresaId);
       setProyectoId(gasto.proyectoId || '');
-      setMonto(gasto.monto.toString());
-      // Cargar valores de impuestos si existen
-      if (gasto.montoNeto !== undefined && gasto.montoNeto !== null) {
-        setMontoNeto(gasto.montoNeto.toString());
-      } else {
-        setMontoNeto('');
-      }
-      if (gasto.iva !== undefined && gasto.iva !== null) {
-        setMontoIva(gasto.iva.toString());
-      } else {
-        setMontoIva('');
-      }
+      // Cargar el monto total (el campo monto ahora es el total)
+      // Los valores de montoNeto e iva se calcularán automáticamente con el useEffect
       if (gasto.montoTotal !== undefined && gasto.montoTotal !== null) {
-        setMontoTotal(gasto.montoTotal.toString());
+        setMonto(gasto.montoTotal.toString());
       } else {
-        setMontoTotal('');
+        // Fallback: usar monto si no hay montoTotal
+        setMonto(gasto.monto.toString());
       }
+      // Inicializar valores vacíos, el useEffect los calculará
+      setMontoNeto('');
+      setMontoIva('');
+      setMontoTotal('');
       setDetalle(gasto.detalle || '');
       setComentarioTipoDocumento(gasto.comentarioTipoDocumento || '');
     } else {
@@ -281,12 +304,10 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
     console.log("💾 Guardando gasto con tipo de documento ID:", tipoDocumento, "tipo:", typeof tipoDocumento);
     
     // Calcular valores de impuestos si aplica
+    // El campo monto ahora es siempre el Monto Total
+    const montoTotalValue = monto ? parseInt(monto) : 0;
     const montoNetoValue = aplicaImpuesto && montoNeto ? parseInt(montoNeto) : undefined;
     const ivaValue = aplicaImpuesto && montoIva ? parseInt(montoIva) : undefined;
-    // MONTO_TOTAL: si aplica impuesto usa montoTotal, sino usa el monto ingresado
-    const montoTotalValue = aplicaImpuesto && montoTotal 
-      ? parseInt(montoTotal) 
-      : parseInt(monto); // Si no aplica impuesto, el monto ingresado es el total
     
     onSave({
       fecha,
@@ -571,29 +592,17 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="monto">Monto (CLP) *</Label>
+            <Label htmlFor="monto">Monto Total (CLP) *</Label>
             <div className="flex gap-2">
-              {aplicaImpuesto ? (
-                <Input
-                  id="monto"
-                  type="number"
-                  placeholder="0"
-                  value={montoNeto}
-                  onChange={(e) => setMontoNeto(e.target.value)}
-                  required
-                  className="flex-1"
-                />
-              ) : (
-                <Input
-                  id="monto"
-                  type="number"
-                  placeholder="0"
-                  value={monto}
-                  onChange={(e) => setMonto(e.target.value)}
-                  required
-                  className="flex-1"
-                />
-              )}
+              <Input
+                id="monto"
+                type="number"
+                placeholder="0"
+                value={monto}
+                onChange={(e) => setMonto(e.target.value)}
+                required
+                className="flex-1"
+              />
               <input
                 type="file"
                 id="archivosAdjuntos"
@@ -619,6 +628,14 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
             </div>
             {aplicaImpuesto && (
               <div className="mt-3 space-y-2 rounded-lg border bg-muted/30 p-3">
+                <div className="flex justify-between items-center text-sm pt-2 border-t">
+                  <span className="font-semibold">Monto Total:</span>
+                  <span className="font-bold text-lg">
+                    {monto && !isNaN(parseFloat(monto)) && parseFloat(monto) > 0
+                      ? parseInt(monto).toLocaleString('es-CL')
+                      : '0'} CLP
+                  </span>
+                </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-muted-foreground">Monto Neto:</span>
                   <span className="font-medium">
@@ -637,13 +654,15 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
                     </span>
                   </div>
                 )}
+              </div>
+            )}
+            {!aplicaImpuesto && monto && (
+              <div className="mt-3 space-y-2 rounded-lg border bg-muted/30 p-3">
                 <div className="flex justify-between items-center text-sm pt-2 border-t">
                   <span className="font-semibold">Monto Total:</span>
                   <span className="font-bold text-lg">
-                    {montoTotal && !isNaN(parseFloat(montoTotal)) && parseFloat(montoTotal) > 0
-                      ? parseInt(montoTotal).toLocaleString('es-CL')
-                      : montoNeto && !isNaN(parseFloat(montoNeto)) && parseFloat(montoNeto) > 0
-                      ? parseInt(montoNeto).toLocaleString('es-CL')
+                    {monto && !isNaN(parseFloat(monto)) && parseFloat(monto) > 0
+                      ? parseInt(monto).toLocaleString('es-CL')
                       : '0'} CLP
                   </span>
                 </div>

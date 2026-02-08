@@ -1459,12 +1459,15 @@ export const tiposDocumentoService = {
         .expand("fields")
         .get();
       
-      return response.value.map((item: any) => ({
-        id: item.id,
-        nombre: item.fields.NOM_DOCUMENTO || item.fields.NomDocumento || item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "",
-        tieneImpuestos: item.fields.APLICA_IMPUESTO || item.fields.AplicaImpuesto || item.fields.aplicaImpuesto || false,
-        valorImpuestos: item.fields.VALOR_IMPUESTO || item.fields.ValorImpuesto || item.fields.valorImpuesto || undefined,
-      }));
+      return response.value.map((item: any) => {
+        const nombreRaw = item.fields.NOM_DOCUMENTO || item.fields.NomDocumento || item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "";
+        return {
+          id: item.id,
+          nombre: nombreRaw ? nombreRaw.toUpperCase() : "",
+          tieneImpuestos: item.fields.APLICA_IMPUESTO || item.fields.AplicaImpuesto || item.fields.aplicaImpuesto || false,
+          valorImpuestos: item.fields.VALOR_IMPUESTO || item.fields.ValorImpuesto || item.fields.valorImpuesto || undefined,
+        };
+      });
     } catch (error) {
       console.error("Error al obtener tipos de documento:", error);
       throw error;

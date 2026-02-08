@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Search, Filter, Pencil, Trash2, FileText, Paperclip } from 'lucide-react';
 import { DocumentoViewer } from '@/components/DocumentoViewer';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { useGastos, useEmpresas, useColaboradores, useSharePointAuth, useTiposDocumento, useProyectos } from '@/hooks/useSharePoint';
+import { useGastos, useEmpresas, useColaboradores, useSharePointAuth, useTiposDocumento, useProyectos, useCategorias } from '@/hooks/useSharePoint';
 import { toast } from '@/hooks/use-toast';
 import { gastosService } from '@/services/sharepointService';
 
@@ -33,6 +33,7 @@ export default function Gastos() {
   const tiposDocumentoHook = useTiposDocumento();
   const colaboradoresHook = useColaboradores();
   const proyectosHook = useProyectos();
+  const categoriasHook = useCategorias();
   
   // Extraer valores de forma segura
   const gastosSharePoint = gastosHook.gastos || [];
@@ -43,6 +44,7 @@ export default function Gastos() {
   const tiposDocumentoSharePoint = tiposDocumentoHook.tiposDocumento || [];
   const colaboradoresSharePoint = colaboradoresHook.colaboradores || [];
   const proyectosSharePoint = proyectosHook.proyectos || [];
+  const categoriasSharePoint = categoriasHook.categorias || [];
   
   // Crear un mapeo de ID a nombre para tipos de documento
   const tiposDocumentoMap = useMemo(() => {
@@ -53,12 +55,60 @@ export default function Gastos() {
     return map;
   }, [tiposDocumentoSharePoint]);
   
+  // Ordenar tipos de documento alfabéticamente, pero "Otro" o "Otros" siempre al final
+  const tiposDocumentoOrdenados = useMemo(() => {
+    return [...tiposDocumentoSharePoint].sort((a, b) => {
+      const nombreA = a.nombre.toLowerCase();
+      const nombreB = b.nombre.toLowerCase();
+      
+      // Si uno es "Otro" o "Otros", va al final
+      const esOtroA = nombreA === 'otro' || nombreA === 'otros';
+      const esOtroB = nombreB === 'otro' || nombreB === 'otros';
+      
+      if (esOtroA && !esOtroB) return 1; // A va después
+      if (!esOtroA && esOtroB) return -1; // B va después
+      if (esOtroA && esOtroB) return 0; // Ambos son "Otro", mantener orden
+      
+      // Ordenar alfabéticamente
+      return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
+    });
+  }, [tiposDocumentoSharePoint]);
+  
   // Usar datos de SharePoint si está autenticado y no está cargando, sino usar datos mock
   // Asegurar que siempre sean arrays para evitar errores
   const gastos = (isAuthenticated && !authLoading && !loadingGastos) ? gastosSharePoint : gastosData;
   const empresasData = (isAuthenticated && !authLoading && !loadingEmpresas) ? empresasSharePoint : empresasDataMock;
   const colaboradoresData = (isAuthenticated && !authLoading) ? colaboradoresSharePoint : colaboradoresDataMock;
   const proyectosData = (isAuthenticated && !authLoading) ? proyectosSharePoint : [];
+  
+  // Ordenar empresas alfabéticamente
+  const empresasOrdenadas = useMemo(() => {
+    return [...empresasData].sort((a, b) => 
+      a.razonSocial.localeCompare(b.razonSocial, 'es', { sensitivity: 'base' })
+    );
+  }, [empresasData]);
+  
+  // Ordenar colaboradores alfabéticamente
+  const colaboradoresOrdenados = useMemo(() => {
+    return [...colaboradoresData].sort((a, b) => 
+      a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+    );
+  }, [colaboradoresData]);
+  
+  // Usar categorías de SharePoint si está autenticado, sino usar datos mock
+  // Mapear categorías de SharePoint al formato esperado y ordenar alfabéticamente
+  const categoriasData = useMemo(() => {
+    if (isAuthenticated && !authLoading && categoriasSharePoint.length > 0) {
+      return categoriasSharePoint.map(cat => ({
+        id: String(cat.id),
+        nombre: cat.nombre,
+        color: cat.color || `bg-category-${cat.id}`,
+      })).sort((a, b) => 
+        a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' })
+      );
+    }
+    return categorias;
+  }, [isAuthenticated, authLoading, categoriasSharePoint]);
   
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGasto, setEditingGasto] = useState<Gasto | undefined>();
@@ -322,7 +372,7 @@ export default function Gastos() {
             </SelectTrigger>
             <SelectContent className="bg-card">
               <SelectItem value="all">Todas las categorías</SelectItem>
-              {categorias.map((cat) => (
+              {categoriasData.map((cat) => (
                 <SelectItem key={cat.id} value={cat.id}>{cat.nombre}</SelectItem>
               ))}
             </SelectContent>
@@ -334,7 +384,7 @@ export default function Gastos() {
             </SelectTrigger>
             <SelectContent className="bg-card">
               <SelectItem value="all">Todas las empresas</SelectItem>
-              {empresasData.map((emp) => (
+              {empresasOrdenadas.map((emp) => (
                 <SelectItem key={emp.id} value={emp.id}>{emp.razonSocial}</SelectItem>
               ))}
             </SelectContent>
@@ -358,7 +408,7 @@ export default function Gastos() {
             </SelectTrigger>
             <SelectContent className="bg-card">
               <SelectItem value="all">Todos los tipos</SelectItem>
-              {tiposDocumentoSharePoint.map((tipo) => (
+              {tiposDocumentoOrdenados.map((tipo) => (
                 <SelectItem key={tipo.id} value={String(tipo.id)}>
                   {tipo.nombre}
                 </SelectItem>
@@ -372,7 +422,7 @@ export default function Gastos() {
             </SelectTrigger>
             <SelectContent className="bg-card">
               <SelectItem value="all">Todos los colaboradores</SelectItem>
-              {colaboradoresData.map((colaborador) => (
+              {colaboradoresOrdenados.map((colaborador) => (
                 <SelectItem key={colaborador.id} value={colaborador.id}>
                   {colaborador.nombre}
                 </SelectItem>

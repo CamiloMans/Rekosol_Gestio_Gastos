@@ -10,8 +10,10 @@ import { categorias as categoriasMock, empresasData as empresasDataMock, proyect
 import { Save, Plus, Paperclip, Search } from 'lucide-react';
 import { ProyectoModal } from './ProyectoModal';
 import { EmpresaModal } from './EmpresaModal';
+import { CategoriaModal } from './CategoriaModal';
 import { ConfirmDialog } from './ConfirmDialog';
 import { useProyectos, useEmpresas, useCategorias, useTiposDocumento, useSharePointAuth } from '@/hooks/useSharePoint';
+import type { Categoria } from '@/services/sharepointService';
 
 interface GastoModalProps {
   open: boolean;
@@ -26,7 +28,7 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
   const { isAuthenticated } = useSharePointAuth();
   const { proyectos: proyectosSharePoint, createProyecto: createProyectoSharePoint } = useProyectos();
   const { empresas: empresasSharePoint, createEmpresa: createEmpresaSharePoint } = useEmpresas();
-  const { categorias: categoriasSharePoint } = useCategorias();
+  const { categorias: categoriasSharePoint, createCategoria: createCategoriaSharePoint } = useCategorias();
   const { tiposDocumento: tiposDocumentoSharePoint } = useTiposDocumento();
   
   // Estados
@@ -44,6 +46,7 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
   const [comentarioTipoDocumento, setComentarioTipoDocumento] = useState('');
   const [proyectoModalOpen, setProyectoModalOpen] = useState(false);
   const [empresaModalOpen, setEmpresaModalOpen] = useState(false);
+  const [categoriaModalOpen, setCategoriaModalOpen] = useState(false);
   const [archivosAdjuntos, setArchivosAdjuntos] = useState<File[]>([]);
   const [filtroCategoriaEmpresa, setFiltroCategoriaEmpresa] = useState<'Empresa' | 'Persona Natural' | 'all'>('all');
   const [busquedaEmpresa, setBusquedaEmpresa] = useState('');
@@ -385,6 +388,33 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
     }
   };
 
+  const handleSaveCategoria = async (nuevaCategoria: Omit<Categoria, 'id'>) => {
+    try {
+      if (isAuthenticated && createCategoriaSharePoint) {
+        // Guardar en SharePoint
+        const categoriaCreada = await createCategoriaSharePoint(nuevaCategoria);
+        setCategoria(String(categoriaCreada.id));
+      } else {
+        // Fallback a datos locales - crear una categoría temporal
+        const categoriaCreada: Categoria = {
+          ...nuevaCategoria,
+          id: Date.now().toString(),
+        };
+        setCategoria(categoriaCreada.id);
+      }
+      setCategoriaModalOpen(false);
+    } catch (error) {
+      console.error("Error al guardar categoría:", error);
+      // En caso de error, usar fallback local
+      const categoriaCreada: Categoria = {
+        ...nuevaCategoria,
+        id: Date.now().toString(),
+      };
+      setCategoria(categoriaCreada.id);
+      setCategoriaModalOpen(false);
+    }
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onClose}>
@@ -441,24 +471,34 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="categoria">Categoría *</Label>
-              <Select value={String(categoria)} onValueChange={(value) => setCategoria(value)} required>
-                <SelectTrigger className="bg-card w-full h-10">
-                  <SelectValue placeholder="Seleccionar categoría" />
-                </SelectTrigger>
-                <SelectContent className="bg-card">
-                  {categorias.length > 0 ? (
-                    categorias.map((cat) => (
-                      <SelectItem key={cat.id} value={String(cat.id)}>
-                      {cat.nombre}
+              <div className="flex gap-2">
+                <Select value={String(categoria)} onValueChange={(value) => setCategoria(value)} required>
+                  <SelectTrigger className="flex-1 bg-card w-full h-10">
+                    <SelectValue placeholder="Seleccionar categoría" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-card">
+                    {categorias.length > 0 ? (
+                      categorias.map((cat) => (
+                        <SelectItem key={cat.id} value={String(cat.id)}>
+                        {cat.nombre}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="" disabled>
+                        No hay categorías disponibles
                       </SelectItem>
-                    ))
-                  ) : (
-                    <SelectItem value="" disabled>
-                      No hay categorías disponibles
-                    </SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+                    )}
+                  </SelectContent>
+                </Select>
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  size="icon"
+                  onClick={() => setCategoriaModalOpen(true)}
+                >
+                  <Plus size={18} />
+                </Button>
+              </div>
             </div>
           </div>
 
@@ -730,6 +770,12 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
         open={empresaModalOpen}
         onClose={() => setEmpresaModalOpen(false)}
         onSave={handleSaveEmpresa}
+      />
+      
+      <CategoriaModal
+        open={categoriaModalOpen}
+        onClose={() => setCategoriaModalOpen(false)}
+        onSave={handleSaveCategoria}
       />
       
       <ConfirmDialog

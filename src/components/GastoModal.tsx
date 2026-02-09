@@ -393,9 +393,9 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       if (isAuthenticated && createCategoriaSharePoint) {
         // Guardar en SharePoint
         const categoriaCreada = await createCategoriaSharePoint(nuevaCategoria);
-        // Recargar las categorías para actualizar la lista
+        // Recargar las categorías para actualizar la lista (forzar refresh para obtener la nueva)
         if (loadCategoriasSharePoint) {
-          await loadCategoriasSharePoint();
+          await loadCategoriasSharePoint(true);
         }
         setCategoria(String(categoriaCreada.id));
       } else {

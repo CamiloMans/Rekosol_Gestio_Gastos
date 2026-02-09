@@ -111,19 +111,37 @@ export const formatCurrency = (amount: number): string => {
 };
 
 export const formatDate = (dateString: string): string => {
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('es-CL', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(date);
+  if (!dateString) return '-';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return '-';
+    }
+    return new Intl.DateTimeFormat('es-CL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(date);
+  } catch (e) {
+    console.warn("Error al formatear fecha:", dateString, e);
+    return '-';
+  }
 };
 
 export const formatDateLong = (dateString: string): string => {
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('es-CL', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(date);
+  if (!dateString) return '-';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return '-';
+    }
+    return new Intl.DateTimeFormat('es-CL', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    }).format(date);
+  } catch (e) {
+    console.warn("Error al formatear fecha larga:", dateString, e);
+    return '-';
+  }
 };

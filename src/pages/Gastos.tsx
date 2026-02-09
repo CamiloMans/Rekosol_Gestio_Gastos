@@ -43,6 +43,8 @@ export default function Gastos() {
   const loadingEmpresas = empresasHook.loading || false;
   const tiposDocumentoSharePoint = tiposDocumentoHook.tiposDocumento || [];
   const colaboradoresSharePoint = colaboradoresHook.colaboradores || [];
+  const loadingColaboradores = colaboradoresHook.loading || false;
+  const errorColaboradores = colaboradoresHook.error || null;
   const proyectosSharePoint = proyectosHook.proyectos || [];
   const categoriasSharePoint = categoriasHook.categorias || [];
   
@@ -137,6 +139,16 @@ export default function Gastos() {
       });
     }
   }, [errorGastos]);
+
+  useEffect(() => {
+    if (errorColaboradores) {
+      toast({
+        title: "Error al cargar colaboradores",
+        description: errorColaboradores.message,
+        variant: "destructive",
+      });
+    }
+  }, [errorColaboradores]);
 
   const filteredGastos = useMemo(() => {
     if (!gastos || gastos.length === 0) return [];

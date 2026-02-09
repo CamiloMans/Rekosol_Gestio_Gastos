@@ -3,13 +3,14 @@ import { msalInstance } from "@/lib/msalConfig";
 import type { Gasto, Empresa, Proyecto, Colaborador } from "@/data/mockData";
 
 const SITE_ID_CACHE_KEY = "sharepoint_site_id";
+const LIST_IDS_CACHE_KEY = "sharepoint_list_ids";
 
 // Nombres de las listas en SharePoint
 const LISTS = {
   GASTOS: "REGISTRO_GASTOS",
-  EMPRESAS: "Empresas",
+  EMPRESAS: "EMPRESAS",
   PROYECTOS: "PROYECTOS",
-  COLABORADORES: "Colaboradores",
+  COLABORADORES: "COLABORADORES",
   CATEGORIAS: "CATEGORIAS",
   TIPOS_DOCUMENTO: "TIPO_DOCUMENTO",
 };
@@ -32,20 +33,52 @@ async function getCachedSiteId(): Promise<string> {
 }
 
 /**
- * Obtiene el ID de una lista por su nombre
+ * Obtiene el ID de una lista por su nombre (con caché para mejor rendimiento)
  */
 async function getListId(listName: string): Promise<string> {
+  // Intentar obtener del caché primero
+  try {
+    const cachedListIds = sessionStorage.getItem(LIST_IDS_CACHE_KEY);
+    if (cachedListIds) {
+      const listIds = JSON.parse(cachedListIds);
+      if (listIds[listName]) {
+        return listIds[listName];
+      }
+    }
+  } catch (e) {
+    // Si hay error al parsear el caché, continuar con la búsqueda
+    console.warn("Error al leer caché de list IDs:", e);
+  }
+  
   const client = await getGraphClient();
   const siteId = await getCachedSiteId();
   
   try {
+    // Obtener todas las listas de una vez para cachearlas
     const lists = await client
       .api(`/sites/${siteId}/lists`)
-      .filter(`displayName eq '${listName}'`)
       .get();
     
+    // Crear un mapa de nombre -> ID
+    const listIdsMap: Record<string, string> = {};
     if (lists.value && lists.value.length > 0) {
-      return lists.value[0].id;
+      lists.value.forEach((list: any) => {
+        if (list.displayName) {
+          listIdsMap[list.displayName] = list.id;
+        }
+      });
+    }
+    
+    // Guardar en caché
+    try {
+      sessionStorage.setItem(LIST_IDS_CACHE_KEY, JSON.stringify(listIdsMap));
+    } catch (e) {
+      console.warn("Error al guardar caché de list IDs:", e);
+    }
+    
+    // Buscar la lista solicitada
+    if (listIdsMap[listName]) {
+      return listIdsMap[listName];
     }
     
     throw new Error(`Lista "${listName}" no encontrada en SharePoint`);
@@ -1040,20 +1073,59 @@ export const empresasService = {
     const listId = await getListId(LISTS.EMPRESAS);
     
     try {
+      // Optimizar la consulta: obtener solo los campos necesarios
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .expand("fields")
+        .select("id,fields")
+        .top(500) // Limitar a 500 items
         .get();
       
-      return response.value.map((item: any) => ({
-        id: item.id,
-        razonSocial: item.fields.NOM_EMPRESA || item.fields.NomEmpresa || item.fields.RazonSocial || "",
-        rut: item.fields.RUT || item.fields.Rut || "",
-        numeroContacto: item.fields.NUM_CONTACTO || item.fields.NumContacto || item.fields.NumeroContacto || undefined,
-        correoElectronico: item.fields.CORREO || item.fields.Correo || item.fields.CorreoElectronico || undefined,
-        categoria: item.fields.CATEGORIA || item.fields.Categoria || undefined,
-        createdAt: item.fields.CreatedAt || item.createdDateTime || "",
-      }));
+      if (!response.value || response.value.length === 0) {
+        console.warn("No se encontraron empresas en SharePoint");
+        return [];
+      }
+      
+      return response.value.map((item: any) => {
+        // Manejar la fecha de creación de forma segura
+        let createdAt = "";
+        try {
+          const fechaValue = item.fields.CreatedAt || item.createdDateTime || item.fields.Created || "";
+          if (fechaValue) {
+            // Si es una cadena, intentar parsearla
+            if (typeof fechaValue === 'string') {
+              const fecha = new Date(fechaValue);
+              if (!isNaN(fecha.getTime())) {
+                createdAt = fecha.toISOString().split('T')[0];
+              } else {
+                // Si no se puede parsear, usar fecha actual
+                createdAt = new Date().toISOString().split('T')[0];
+              }
+            } else if (fechaValue instanceof Date) {
+              createdAt = fechaValue.toISOString().split('T')[0];
+            } else {
+              createdAt = new Date().toISOString().split('T')[0];
+            }
+          } else {
+            // Si no hay fecha, usar fecha actual
+            createdAt = new Date().toISOString().split('T')[0];
+          }
+        } catch (e) {
+          // Si hay cualquier error, usar fecha actual
+          console.warn("Error al parsear fecha de empresa:", e);
+          createdAt = new Date().toISOString().split('T')[0];
+        }
+        
+        return {
+          id: item.id,
+          razonSocial: item.fields.NOM_EMPRESA || item.fields.NomEmpresa || item.fields.RazonSocial || "",
+          rut: item.fields.RUT || item.fields.Rut || "",
+          numeroContacto: item.fields.NUM_CONTACTO || item.fields.NumContacto || item.fields.NumeroContacto || undefined,
+          correoElectronico: item.fields.CORREO || item.fields.Correo || item.fields.CorreoElectronico || undefined,
+          categoria: item.fields.CATEGORIA || item.fields.Categoria || undefined,
+          createdAt: createdAt,
+        };
+      });
     } catch (error) {
       console.error("Error al obtener empresas:", error);
       throw error;
@@ -1216,19 +1288,58 @@ export const colaboradoresService = {
     const listId = await getListId(LISTS.COLABORADORES);
     
     try {
+      // Optimizar la consulta: obtener solo los campos necesarios
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .expand("fields")
+        .select("id,fields")
+        .top(500) // Limitar a 500 items
         .get();
       
-      return response.value.map((item: any) => ({
-        id: item.id,
-        nombre: item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "",
-        email: item.fields.CORREO || item.fields.Correo || item.fields.Email || undefined,
-        telefono: item.fields.NUM_CONTACTO || item.fields.NumContacto || item.fields.Telefono || undefined,
-        cargo: item.fields.CARGO || item.fields.Cargo || undefined,
-        createdAt: item.fields.CreatedAt || item.createdDateTime || "",
-      }));
+      if (!response.value || response.value.length === 0) {
+        console.warn("No se encontraron colaboradores en SharePoint");
+        return [];
+      }
+      
+      return response.value.map((item: any) => {
+        // Manejar la fecha de creación de forma segura
+        let createdAt = "";
+        try {
+          const fechaValue = item.fields.CreatedAt || item.createdDateTime || item.fields.Created || "";
+          if (fechaValue) {
+            // Si es una cadena, intentar parsearla
+            if (typeof fechaValue === 'string') {
+              const fecha = new Date(fechaValue);
+              if (!isNaN(fecha.getTime())) {
+                createdAt = fecha.toISOString().split('T')[0];
+              } else {
+                // Si no se puede parsear, usar fecha actual
+                createdAt = new Date().toISOString().split('T')[0];
+              }
+            } else if (fechaValue instanceof Date) {
+              createdAt = fechaValue.toISOString().split('T')[0];
+            } else {
+              createdAt = new Date().toISOString().split('T')[0];
+            }
+          } else {
+            // Si no hay fecha, usar fecha actual
+            createdAt = new Date().toISOString().split('T')[0];
+          }
+        } catch (e) {
+          // Si hay cualquier error, usar fecha actual
+          console.warn("Error al parsear fecha de colaborador:", e);
+          createdAt = new Date().toISOString().split('T')[0];
+        }
+        
+        return {
+          id: item.id,
+          nombre: item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "",
+          email: item.fields.CORREO || item.fields.Correo || item.fields.Email || undefined,
+          telefono: item.fields.NUM_CONTACTO || item.fields.NumContacto || item.fields.Telefono || undefined,
+          cargo: item.fields.CARGO || item.fields.Cargo || undefined,
+          createdAt: createdAt,
+        };
+      });
     } catch (error) {
       console.error("Error al obtener colaboradores:", error);
       throw error;
@@ -1297,9 +1408,12 @@ export const categoriasService = {
     const listId = await getListId(LISTS.CATEGORIAS);
     
     try {
+      // Optimizar la consulta: obtener solo los campos necesarios y ordenar por nombre
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .expand("fields")
+        .select("id,fields")
+        .top(500) // Limitar a 500 items (suficiente para categorías)
         .get();
       
       return response.value.map((item: any) => ({

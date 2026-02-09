@@ -161,23 +161,67 @@ export function useGastos() {
 }
 
 // Hook para gestionar empresas desde SharePoint
+const EMPRESAS_CACHE_KEY = "empresas_cache";
+const EMPRESAS_CACHE_TIMESTAMP = "empresas_cache_timestamp";
+const EMPRESAS_CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+
 export function useEmpresas() {
   const { isAuthenticated } = useSharePointAuth();
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const loadEmpresas = async () => {
+  const loadEmpresas = async (forceRefresh = false) => {
     if (!isAuthenticated) return;
+    
+    // Verificar caché si no es un refresh forzado
+    if (!forceRefresh) {
+      try {
+        const cached = sessionStorage.getItem(EMPRESAS_CACHE_KEY);
+        const timestamp = sessionStorage.getItem(EMPRESAS_CACHE_TIMESTAMP);
+        
+        if (cached && timestamp) {
+          const cacheAge = Date.now() - parseInt(timestamp, 10);
+          if (cacheAge < EMPRESAS_CACHE_DURATION) {
+            // El caché es válido, usar datos cacheados
+            setEmpresas(JSON.parse(cached));
+            return;
+          }
+        }
+      } catch (e) {
+        // Si hay error al leer el caché, continuar con la carga normal
+        console.warn("Error al leer caché de empresas:", e);
+      }
+    }
     
     setLoading(true);
     setError(null);
     try {
+      console.log("🔄 Cargando empresas desde SharePoint...");
       const data = await empresasService.getAll();
+      console.log(`✅ Empresas cargadas: ${data.length} encontradas`, data);
       setEmpresas(data);
+      
+      // Guardar en caché
+      try {
+        sessionStorage.setItem(EMPRESAS_CACHE_KEY, JSON.stringify(data));
+        sessionStorage.setItem(EMPRESAS_CACHE_TIMESTAMP, Date.now().toString());
+      } catch (e) {
+        console.warn("Error al guardar caché de empresas:", e);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("Error desconocido"));
-      console.error("Error al cargar empresas:", err);
+      const errorMessage = err instanceof Error ? err.message : "Error desconocido";
+      setError(err instanceof Error ? err : new Error(errorMessage));
+      console.error("❌ Error al cargar empresas:", err);
+      
+      // Mostrar el error en la consola con más detalles
+      if (err instanceof Error) {
+        console.error("Detalles del error:", {
+          message: err.message,
+          stack: err.stack,
+          name: err.name
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -186,7 +230,17 @@ export function useEmpresas() {
   const createEmpresa = async (empresa: Omit<Empresa, "id" | "createdAt">) => {
     try {
       const nuevaEmpresa = await empresasService.create(empresa);
-      setEmpresas([...empresas, nuevaEmpresa]);
+      const nuevasEmpresas = [...empresas, nuevaEmpresa];
+      setEmpresas(nuevasEmpresas);
+      
+      // Actualizar caché
+      try {
+        sessionStorage.setItem(EMPRESAS_CACHE_KEY, JSON.stringify(nuevasEmpresas));
+        sessionStorage.setItem(EMPRESAS_CACHE_TIMESTAMP, Date.now().toString());
+      } catch (e) {
+        console.warn("Error al actualizar caché de empresas:", e);
+      }
+      
       return nuevaEmpresa;
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Error al crear empresa"));
@@ -292,23 +346,67 @@ export function useProyectos() {
 }
 
 // Hook para gestionar colaboradores desde SharePoint
+const COLABORADORES_CACHE_KEY = "colaboradores_cache";
+const COLABORADORES_CACHE_TIMESTAMP = "colaboradores_cache_timestamp";
+const COLABORADORES_CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+
 export function useColaboradores() {
   const { isAuthenticated } = useSharePointAuth();
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const loadColaboradores = async () => {
+  const loadColaboradores = async (forceRefresh = false) => {
     if (!isAuthenticated) return;
+    
+    // Verificar caché si no es un refresh forzado
+    if (!forceRefresh) {
+      try {
+        const cached = sessionStorage.getItem(COLABORADORES_CACHE_KEY);
+        const timestamp = sessionStorage.getItem(COLABORADORES_CACHE_TIMESTAMP);
+        
+        if (cached && timestamp) {
+          const cacheAge = Date.now() - parseInt(timestamp, 10);
+          if (cacheAge < COLABORADORES_CACHE_DURATION) {
+            // El caché es válido, usar datos cacheados
+            setColaboradores(JSON.parse(cached));
+            return;
+          }
+        }
+      } catch (e) {
+        // Si hay error al leer el caché, continuar con la carga normal
+        console.warn("Error al leer caché de colaboradores:", e);
+      }
+    }
     
     setLoading(true);
     setError(null);
     try {
+      console.log("🔄 Cargando colaboradores desde SharePoint...");
       const data = await colaboradoresService.getAll();
+      console.log(`✅ Colaboradores cargados: ${data.length} encontrados`, data);
       setColaboradores(data);
+      
+      // Guardar en caché
+      try {
+        sessionStorage.setItem(COLABORADORES_CACHE_KEY, JSON.stringify(data));
+        sessionStorage.setItem(COLABORADORES_CACHE_TIMESTAMP, Date.now().toString());
+      } catch (e) {
+        console.warn("Error al guardar caché de colaboradores:", e);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err : new Error("Error desconocido"));
-      console.error("Error al cargar colaboradores:", err);
+      const errorMessage = err instanceof Error ? err.message : "Error desconocido";
+      setError(err instanceof Error ? err : new Error(errorMessage));
+      console.error("❌ Error al cargar colaboradores:", err);
+      
+      // Mostrar el error en la consola con más detalles
+      if (err instanceof Error) {
+        console.error("Detalles del error:", {
+          message: err.message,
+          stack: err.stack,
+          name: err.name
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -317,7 +415,17 @@ export function useColaboradores() {
   const createColaborador = async (colaborador: Omit<Colaborador, "id" | "createdAt">) => {
     try {
       const nuevoColaborador = await colaboradoresService.create(colaborador);
-      setColaboradores([...colaboradores, nuevoColaborador]);
+      const nuevosColaboradores = [...colaboradores, nuevoColaborador];
+      setColaboradores(nuevosColaboradores);
+      
+      // Actualizar caché
+      try {
+        sessionStorage.setItem(COLABORADORES_CACHE_KEY, JSON.stringify(nuevosColaboradores));
+        sessionStorage.setItem(COLABORADORES_CACHE_TIMESTAMP, Date.now().toString());
+      } catch (e) {
+        console.warn("Error al actualizar caché de colaboradores:", e);
+      }
+      
       return nuevoColaborador;
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Error al crear colaborador"));
@@ -352,20 +460,52 @@ export function useColaboradores() {
 }
 
 // Hook para gestionar categorías desde SharePoint
+const CATEGORIAS_CACHE_KEY = "categorias_cache";
+const CATEGORIAS_CACHE_TIMESTAMP = "categorias_cache_timestamp";
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+
 export function useCategorias() {
   const { isAuthenticated } = useSharePointAuth();
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const loadCategorias = async () => {
+  const loadCategorias = async (forceRefresh = false) => {
     if (!isAuthenticated) return;
+    
+    // Verificar caché si no es un refresh forzado
+    if (!forceRefresh) {
+      try {
+        const cached = sessionStorage.getItem(CATEGORIAS_CACHE_KEY);
+        const timestamp = sessionStorage.getItem(CATEGORIAS_CACHE_TIMESTAMP);
+        
+        if (cached && timestamp) {
+          const cacheAge = Date.now() - parseInt(timestamp, 10);
+          if (cacheAge < CACHE_DURATION) {
+            // El caché es válido, usar datos cacheados
+            setCategorias(JSON.parse(cached));
+            return;
+          }
+        }
+      } catch (e) {
+        // Si hay error al leer el caché, continuar con la carga normal
+        console.warn("Error al leer caché de categorías:", e);
+      }
+    }
     
     setLoading(true);
     setError(null);
     try {
       const data = await categoriasService.getAll();
       setCategorias(data);
+      
+      // Guardar en caché
+      try {
+        sessionStorage.setItem(CATEGORIAS_CACHE_KEY, JSON.stringify(data));
+        sessionStorage.setItem(CATEGORIAS_CACHE_TIMESTAMP, Date.now().toString());
+      } catch (e) {
+        console.warn("Error al guardar caché de categorías:", e);
+      }
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Error desconocido"));
       console.error("Error al cargar categorías:", err);
@@ -377,7 +517,17 @@ export function useCategorias() {
   const createCategoria = async (categoria: Omit<Categoria, "id">) => {
     try {
       const nuevaCategoria = await categoriasService.create(categoria);
-      setCategorias([...categorias, nuevaCategoria]);
+      const nuevasCategorias = [...categorias, nuevaCategoria];
+      setCategorias(nuevasCategorias);
+      
+      // Actualizar caché
+      try {
+        sessionStorage.setItem(CATEGORIAS_CACHE_KEY, JSON.stringify(nuevasCategorias));
+        sessionStorage.setItem(CATEGORIAS_CACHE_TIMESTAMP, Date.now().toString());
+      } catch (e) {
+        console.warn("Error al actualizar caché de categorías:", e);
+      }
+      
       return nuevaCategoria;
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Error al crear categoría"));

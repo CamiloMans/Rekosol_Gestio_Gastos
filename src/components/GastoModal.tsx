@@ -488,7 +488,8 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
             </Select>
             {(() => {
               const tipoSeleccionado = tiposDocumento.find(t => t.id === tipoDocumento);
-              const esOtros = tipoSeleccionado?.nombre === 'Otros' || tipoSeleccionado?.nombre === 'Otro';
+              const nombreNormalizado = tipoSeleccionado?.nombre?.toLowerCase() || '';
+              const esOtros = nombreNormalizado === 'otros' || nombreNormalizado === 'otro';
               return esOtros && (
                 <div className="space-y-2 pt-2">
                   <Label htmlFor="comentarioTipoDocumento">Especificar tipo de documento *</Label>

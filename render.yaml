@@ -2,6 +2,7 @@ services:
   - type: web
     name: rekosol-gestion-gastos
     env: static
+    rootDir: .
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     pullRequestPreviewsEnabled: true

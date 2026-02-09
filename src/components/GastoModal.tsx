@@ -28,7 +28,7 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
   const { isAuthenticated } = useSharePointAuth();
   const { proyectos: proyectosSharePoint, createProyecto: createProyectoSharePoint } = useProyectos();
   const { empresas: empresasSharePoint, createEmpresa: createEmpresaSharePoint } = useEmpresas();
-  const { categorias: categoriasSharePoint, createCategoria: createCategoriaSharePoint } = useCategorias();
+  const { categorias: categoriasSharePoint, createCategoria: createCategoriaSharePoint, loadCategorias: loadCategoriasSharePoint } = useCategorias();
   const { tiposDocumento: tiposDocumentoSharePoint } = useTiposDocumento();
   
   // Estados
@@ -393,6 +393,10 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
       if (isAuthenticated && createCategoriaSharePoint) {
         // Guardar en SharePoint
         const categoriaCreada = await createCategoriaSharePoint(nuevaCategoria);
+        // Recargar las categorías para actualizar la lista
+        if (loadCategoriasSharePoint) {
+          await loadCategoriasSharePoint();
+        }
         setCategoria(String(categoriaCreada.id));
       } else {
         // Fallback a datos locales - crear una categoría temporal

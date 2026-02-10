@@ -8,8 +8,9 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Search, Filter, Pencil, Trash2, FileText, Paperclip } from 'lucide-react';
+import { Search, Filter, Pencil, Trash2, FileText, Paperclip, MessageSquare } from 'lucide-react';
 import { DocumentoViewer } from '@/components/DocumentoViewer';
+import { DetalleGastoDialog } from '@/components/DetalleGastoDialog';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useGastos, useEmpresas, useColaboradores, useSharePointAuth, useTiposDocumento, useProyectos, useCategorias } from '@/hooks/useSharePoint';
 import { toast } from '@/hooks/use-toast';
@@ -124,6 +125,8 @@ export default function Gastos() {
   const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
   const [documentoViewerOpen, setDocumentoViewerOpen] = useState(false);
   const [documentoSeleccionado, setDocumentoSeleccionado] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
+  const [detalleGastoOpen, setDetalleGastoOpen] = useState(false);
+  const [gastoSeleccionado, setGastoSeleccionado] = useState<Gasto | undefined>();
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
   const [gastoAEliminar, setGastoAEliminar] = useState<string | null>(null);
   const [confirmTitle, setConfirmTitle] = useState('');
@@ -563,6 +566,19 @@ export default function Gastos() {
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-center gap-1">
+                      {gasto.detalle && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          onClick={() => {
+                            setGastoSeleccionado(gasto);
+                            setDetalleGastoOpen(true);
+                          }}
+                          title="Ver detalle"
+                        >
+                          <MessageSquare size={16} className="text-blue-500" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="icon" onClick={() => handleEdit(gasto)}>
                         <Pencil size={16} />
                       </Button>
@@ -607,6 +623,15 @@ export default function Gastos() {
           setDocumentoSeleccionado(undefined);
         }}
         archivo={documentoSeleccionado}
+      />
+      
+      <DetalleGastoDialog
+        open={detalleGastoOpen}
+        onClose={() => {
+          setDetalleGastoOpen(false);
+          setGastoSeleccionado(undefined);
+        }}
+        gasto={gastoSeleccionado}
       />
       
       <ConfirmDialog

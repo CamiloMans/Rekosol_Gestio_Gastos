@@ -88,8 +88,14 @@ export function useSharePointAuth() {
   };
 }
 
+type UseGastosOptions = {
+  mode?: "recent" | "all";
+  includeAttachments?: boolean;
+};
+
 // Hook para gestionar gastos desde SharePoint
-export function useGastos() {
+export function useGastos(options: UseGastosOptions = {}) {
+  const { mode = "recent", includeAttachments = true } = options;
   const { isAuthenticated } = useSharePointAuth();
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -101,7 +107,7 @@ export function useGastos() {
     setLoading(true);
     setError(null);
     try {
-      const data = await gastosService.getAll();
+      const data = await gastosService.getAll({ mode, includeAttachments });
       setGastos(data);
     } catch (err) {
       setError(err instanceof Error ? err : new Error("Error desconocido"));
@@ -147,7 +153,7 @@ export function useGastos() {
     if (isAuthenticated) {
       loadGastos();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, mode, includeAttachments]);
 
   return {
     gastos,
@@ -644,4 +650,3 @@ export function useTiposDocumento() {
     deleteTipoDocumento,
   };
 }
-

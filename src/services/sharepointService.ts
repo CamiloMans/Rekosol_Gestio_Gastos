@@ -17,6 +17,8 @@ const LISTS = {
 
 // Document Library para archivos adjuntos
 const DOCUMENT_LIBRARY = "DocumentosGastos";
+const GASTOS_FETCH_LIMIT = 100;
+type GastosFetchMode = "recent" | "all";
 
 /**
  * Obtiene el Site ID (cacheado para mejor rendimiento)
@@ -255,11 +257,11 @@ export const gastosService = {
       
       // Usar SharePoint REST API directamente para obtener attachments
       // Necesitamos un token específico para SharePoint REST API (no el de Microsoft Graph)
-      const siteUrl = getSharePointSiteUrl();
-      const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
       
       // Construir la URL de SharePoint REST API usando el nombre de la lista
       // IMPORTANTE: Usar la URL completa del sitio (incluyendo el path), no solo el origin
+      const siteUrl = getSharePointSiteUrl();
+      const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
       const listName = LISTS.GASTOS; // Usar el nombre de la lista
       const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${id})/AttachmentFiles`;
       
@@ -368,24 +370,104 @@ export const gastosService = {
     }
   },
 
-  async getAll(): Promise<Gasto[]> {
+  async getAll(options: { mode?: GastosFetchMode; includeAttachments?: boolean } = {}): Promise<Gasto[]> {
+    const { mode = "recent", includeAttachments = true } = options;
     const client = await getGraphClient();
     const siteId = await getCachedSiteId();
     const listId = await getListId(LISTS.GASTOS);
     
     try {
-      const response = await client
-        .api(`/sites/${siteId}/lists/${listId}/items`)
-        .expand("fields")
-        .get();
+      const parseFecha = (fecha: unknown): number => {
+        if (!fecha) return 0;
+        const parsed = new Date(String(fecha)).getTime();
+        return Number.isNaN(parsed) ? 0 : parsed;
+      };
+
+      const normalizeNextLink = (nextLink: string): string => {
+        const graphBaseUrl = "https://graph.microsoft.com/v1.0";
+        return nextLink.startsWith(graphBaseUrl)
+          ? nextLink.slice(graphBaseUrl.length)
+          : nextLink;
+      };
+
+      const getAllItemsWithoutServerOrdering = async (): Promise<any[]> => {
+        const allItems: any[] = [];
+        let page = await client
+          .api(`/sites/${siteId}/lists/${listId}/items`)
+          .expand("fields")
+          .top(500)
+          .get();
+
+        if (page.value?.length) {
+          allItems.push(...page.value);
+        }
+
+        let nextLink = page["@odata.nextLink"] as string | undefined;
+        while (nextLink) {
+          page = await client
+            .api(normalizeNextLink(nextLink))
+            .get();
+
+          if (page.value?.length) {
+            allItems.push(...page.value);
+          }
+
+          nextLink = page["@odata.nextLink"] as string | undefined;
+        }
+
+        return allItems;
+      };
+
+      let gastosItems: any[] = [];
+
+      if (mode === "all") {
+        gastosItems = await getAllItemsWithoutServerOrdering();
+      } else {
+        try {
+          const response = await client
+            .api(`/sites/${siteId}/lists/${listId}/items`)
+            .expand("fields")
+            .orderby("fields/FECHA desc")
+            .top(GASTOS_FETCH_LIMIT)
+            .header("Prefer", "HonorNonIndexedQueriesWarningMayFailRandomly")
+            .get();
+
+          gastosItems = response.value || [];
+        } catch (orderByError) {
+          const orderByMessage = orderByError instanceof Error ? orderByError.message : String(orderByError);
+          const isNonIndexedFechaError =
+            orderByMessage.includes("cannot be referenced in filter or orderby") &&
+            orderByMessage.toUpperCase().includes("FECHA");
+
+          if (!isNonIndexedFechaError) {
+            throw orderByError;
+          }
+
+          console.warn("⚠️ FECHA no está indexada en SharePoint. Aplicando fallback con paginación local.");
+          gastosItems = await getAllItemsWithoutServerOrdering();
+        }
+      }
+
+      const gastosOrdenados = [...gastosItems].sort((a: any, b: any) => {
+        const fechaA = a.fields?.FECHA || a.fields?.Fecha || a.fields?.fecha;
+        const fechaB = b.fields?.FECHA || b.fields?.Fecha || b.fields?.fecha;
+        return parseFecha(fechaB) - parseFecha(fechaA);
+      });
+
+      const gastosProcesados =
+        mode === "recent"
+          ? gastosOrdenados.slice(0, GASTOS_FETCH_LIMIT)
+          : gastosOrdenados;
       
       // Obtener todos los items con sus attachments usando SharePoint REST API
       // Microsoft Graph API no soporta attachments en list items directamente
-      const siteUrl = getSharePointSiteUrl();
-      const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
-      
-      const itemsWithAttachments = await Promise.all(
-        response.value.map(async (item: any) => {
+      let itemsWithAttachments: any[] = gastosProcesados;
+      if (includeAttachments) {
+        const siteUrl = getSharePointSiteUrl();
+        const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
+
+        itemsWithAttachments = await Promise.all(
+          gastosProcesados.map(async (item: any) => {
           // Obtener attachments usando SharePoint REST API
           let attachments: Array<{ nombre: string; url: string; tipo: string }> = [];
           
@@ -429,8 +511,9 @@ export const gastosService = {
           }
           
           return { ...item, attachments };
-        })
-      );
+          })
+        );
+      }
       
       return itemsWithAttachments.map((item: any) => {
         // CATEGORIA es un campo lookup
@@ -1709,4 +1792,3 @@ export const archivosService = {
     }
   },
 };
-

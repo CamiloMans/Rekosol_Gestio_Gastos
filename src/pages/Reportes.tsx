@@ -12,7 +12,7 @@ import { useGastos, useCategorias, useEmpresas, useProyectos, useSharePointAuth 
 
 export default function Reportes() {
   const { isAuthenticated } = useSharePointAuth();
-  const { gastos: gastosSharePoint } = useGastos();
+  const { gastos: gastosSharePoint } = useGastos({ mode: "all", includeAttachments: false });
   const { categorias: categoriasSharePoint } = useCategorias();
   const { empresas: empresasSharePoint } = useEmpresas();
   const { proyectos: proyectosSharePoint } = useProyectos();

@@ -156,40 +156,48 @@ export default function Gastos() {
   const filteredGastos = useMemo(() => {
     if (!gastos || gastos.length === 0) return [];
     
-    return gastos.filter(gasto => {
-      const empresa = empresasData?.find(e => e.id === gasto.empresaId);
-      
-      // Asegurar que numeroDocumento sea string antes de usar includes
-      const numeroDocStr = gasto.numeroDocumento ? String(gasto.numeroDocumento) : '';
-      
-    const matchesSearch = 
-        empresa?.razonSocial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        numeroDocStr.includes(searchTerm) ||
-      gasto.detalle?.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesCategoria = filterCategoria === 'all' || gasto.categoria === filterCategoria;
-    const matchesEmpresa = filterEmpresa === 'all' || gasto.empresaId === filterEmpresa;
-    const matchesTipoDoc = filterTipoDoc === 'all' || gasto.tipoDocumento === filterTipoDoc;
-    const matchesColaborador = filterColaborador === 'all' || String(gasto.colaboradorId || '') === String(filterColaborador);
-    const matchesProyecto = filterProyecto === 'all' || String(gasto.proyectoId || '') === String(filterProyecto);
-    
-    // Filtrar por mes
-    let matchesMes = true;
-      if (filterMes !== 'all' && gasto.fecha) {
-        try {
-      const fechaGasto = new Date(gasto.fecha);
-          if (!isNaN(fechaGasto.getTime())) {
-      const mesGasto = `${fechaGasto.getFullYear()}-${String(fechaGasto.getMonth() + 1).padStart(2, '0')}`;
-      matchesMes = mesGasto === filterMes;
+    return gastos
+      .filter((gasto) => {
+        const empresa = empresasData?.find(e => e.id === gasto.empresaId);
+        
+        // Asegurar que numeroDocumento sea string antes de usar includes
+        const numeroDocStr = gasto.numeroDocumento ? String(gasto.numeroDocumento) : '';
+        
+        const matchesSearch = 
+          empresa?.razonSocial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          numeroDocStr.includes(searchTerm) ||
+          gasto.detalle?.toLowerCase().includes(searchTerm.toLowerCase());
+        
+        const matchesCategoria = filterCategoria === 'all' || gasto.categoria === filterCategoria;
+        const matchesEmpresa = filterEmpresa === 'all' || gasto.empresaId === filterEmpresa;
+        const matchesTipoDoc = filterTipoDoc === 'all' || gasto.tipoDocumento === filterTipoDoc;
+        const matchesColaborador = filterColaborador === 'all' || String(gasto.colaboradorId || '') === String(filterColaborador);
+        const matchesProyecto = filterProyecto === 'all' || String(gasto.proyectoId || '') === String(filterProyecto);
+        
+        // Filtrar por mes
+        let matchesMes = true;
+        if (filterMes !== 'all' && gasto.fecha) {
+          try {
+            const fechaGasto = new Date(gasto.fecha);
+            if (!isNaN(fechaGasto.getTime())) {
+              const mesGasto = `${fechaGasto.getFullYear()}-${String(fechaGasto.getMonth() + 1).padStart(2, '0')}`;
+              matchesMes = mesGasto === filterMes;
+            }
+          } catch (e) {
+            // Si hay error al parsear la fecha, no filtrar por mes
+            matchesMes = true;
           }
-        } catch (e) {
-          // Si hay error al parsear la fecha, no filtrar por mes
-          matchesMes = true;
         }
-    }
 
-    return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesColaborador && matchesProyecto && matchesMes;
-  });
+        return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesColaborador && matchesProyecto && matchesMes;
+      })
+      .sort((a, b) => {
+        const fechaA = new Date(a.fecha || "").getTime();
+        const fechaB = new Date(b.fecha || "").getTime();
+        const safeFechaA = Number.isNaN(fechaA) ? 0 : fechaA;
+        const safeFechaB = Number.isNaN(fechaB) ? 0 : fechaB;
+        return safeFechaB - safeFechaA;
+      });
   }, [gastos, empresasData, searchTerm, filterCategoria, filterEmpresa, filterTipoDoc, filterColaborador, filterProyecto, filterMes]);
 
   // Obtener meses únicos de los gastos para el filtro

@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Proyecto } from '@/data/mockData';
 import { Save } from 'lucide-react';
 
@@ -15,18 +16,36 @@ interface ProyectoModalProps {
 
 export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModalProps) {
   const [nombre, setNombre] = useState('');
+  const [codigoProyecto, setCodigoProyecto] = useState('');
+  const [montoTotalProyecto, setMontoTotalProyecto] = useState('');
+  const [monedaBase, setMonedaBase] = useState<'CLP' | 'UF' | 'USD'>('CLP');
 
   useEffect(() => {
     if (proyecto) {
       setNombre(proyecto.nombre ? proyecto.nombre.toUpperCase() : '');
+      setCodigoProyecto(proyecto.codigoProyecto ? proyecto.codigoProyecto.toUpperCase() : '');
+      setMontoTotalProyecto(
+        proyecto.montoTotalProyecto !== undefined && proyecto.montoTotalProyecto !== null
+          ? String(proyecto.montoTotalProyecto)
+          : ''
+      );
+      setMonedaBase(proyecto.monedaBase || 'CLP');
     } else {
       setNombre('');
+      setCodigoProyecto('');
+      setMontoTotalProyecto('');
+      setMonedaBase('CLP');
     }
   }, [proyecto, open]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ nombre });
+    onSave({
+      nombre: nombre.trim().toUpperCase(),
+      codigoProyecto: codigoProyecto.trim().toUpperCase(),
+      montoTotalProyecto: montoTotalProyecto ? Number(montoTotalProyecto) : undefined,
+      monedaBase,
+    });
     onClose();
   };
 
@@ -48,6 +67,45 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
               onChange={(e) => setNombre(e.target.value.toUpperCase())}
               required
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="codigoProyecto">Código de Proyecto *</Label>
+            <Input
+              id="codigoProyecto"
+              placeholder="Ej: PRJ-001"
+              value={codigoProyecto}
+              onChange={(e) => setCodigoProyecto(e.target.value.toUpperCase())}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="montoTotalProyecto">Monto Total del Proyecto *</Label>
+            <Input
+              id="montoTotalProyecto"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0"
+              value={montoTotalProyecto}
+              onChange={(e) => setMontoTotalProyecto(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="monedaBase">Moneda Base *</Label>
+            <Select value={monedaBase} onValueChange={(value) => setMonedaBase(value as 'CLP' | 'UF' | 'USD')}>
+              <SelectTrigger id="monedaBase" className="bg-card">
+                <SelectValue placeholder="Seleccionar moneda" />
+              </SelectTrigger>
+              <SelectContent className="bg-card">
+                <SelectItem value="CLP">CLP</SelectItem>
+                <SelectItem value="UF">UF</SelectItem>
+                <SelectItem value="USD">USD</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">

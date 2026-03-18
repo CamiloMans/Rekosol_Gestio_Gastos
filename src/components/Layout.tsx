@@ -1,6 +1,6 @@
 import { ReactNode, useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Receipt, Settings, BarChart3, Plus, DollarSign, Menu, X } from 'lucide-react';
+import { Receipt, Settings, BarChart3, Plus, DollarSign, Menu, ChevronDown, Landmark } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { SharePointAuth } from '@/components/SharePointAuth';
@@ -10,16 +10,28 @@ interface LayoutProps {
   onNewGasto?: () => void;
 }
 
-const navItems = [
+const gastosNavItems = [
   { path: '/', label: 'Reportes', icon: BarChart3 },
   { path: '/gastos', label: 'Gastos', icon: Receipt },
   { path: '/empresas', label: 'Configuración', icon: Settings },
+];
+
+const controlPagosNavItems = [
+  { path: '/control-pagos/proyectos', label: 'Proyectos', icon: Settings },
+  { path: '/control-pagos/documentos', label: 'Documentos', icon: Receipt },
+  { path: '/control-pagos/hitos', label: 'Hitos', icon: BarChart3 },
 ];
 
 export function Layout({ children, onNewGasto }: LayoutProps) {
   const location = useLocation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [logoError, setLogoError] = useState(false);
+  const [gastosMenuOpen, setGastosMenuOpen] = useState(() =>
+    gastosNavItems.some((item) => item.path === location.pathname)
+  );
+  const [controlPagosMenuOpen, setControlPagosMenuOpen] = useState(() =>
+    controlPagosNavItems.some((item) => item.path === location.pathname)
+  );
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const SWIPE_THRESHOLD = 50; // Distancia mínima para considerar un swipe
   const EDGE_THRESHOLD = 30; // Distancia desde el borde izquierdo para activar
@@ -98,6 +110,18 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
     };
   }, [mobileMenuOpen]);
 
+  useEffect(() => {
+    if (gastosNavItems.some((item) => item.path === location.pathname)) {
+      setGastosMenuOpen(true);
+    }
+    if (controlPagosNavItems.some((item) => item.path === location.pathname)) {
+      setControlPagosMenuOpen(true);
+    }
+  }, [location.pathname]);
+
+  const isGastosSectionActive = gastosNavItems.some((item) => item.path === location.pathname);
+  const isControlPagosSectionActive = controlPagosNavItems.some((item) => item.path === location.pathname);
+
   return (
     <div className="min-h-screen bg-background flex">
       {/* Icono hamburguesa - solo visible en móvil cuando el sidebar está oculto */}
@@ -143,26 +167,95 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
 
           {/* Navigation */}
           <nav className="space-y-2">
-            {navItems.map((item) => {
-              const isActive = location.pathname === item.path;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground hover:bg-sidebar-accent/50"
-                  )}
-                >
-                  <Icon size={20} />
-                  {item.label}
-                </Link>
-              );
-            })}
+            <button
+              type="button"
+              onClick={() => setGastosMenuOpen((prev) => !prev)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+                isGastosSectionActive || gastosMenuOpen
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+              )}
+              aria-expanded={gastosMenuOpen}
+              aria-controls="gastos-submenu"
+            >
+              <DollarSign size={20} />
+              <span className="flex-1 text-left">Gestión de Gastos</span>
+              <ChevronDown
+                size={16}
+                className={cn("transition-transform duration-200", gastosMenuOpen && "rotate-180")}
+              />
+            </button>
+
+            {gastosMenuOpen && (
+              <div id="gastos-submenu" className="ml-4 space-y-1 border-l border-sidebar-border pl-3">
+                {gastosNavItems.map((item) => {
+                  const isActive = location.pathname === item.path;
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+                      )}
+                    >
+                      <Icon size={18} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setControlPagosMenuOpen((prev) => !prev)}
+              className={cn(
+                "flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-colors",
+                isControlPagosSectionActive || controlPagosMenuOpen
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+              )}
+              aria-expanded={controlPagosMenuOpen}
+              aria-controls="control-pagos-submenu"
+            >
+              <Landmark size={20} />
+              <span className="flex-1 text-left">Control de Pagos</span>
+              <ChevronDown
+                size={16}
+                className={cn("transition-transform duration-200", controlPagosMenuOpen && "rotate-180")}
+              />
+            </button>
+
+            {controlPagosMenuOpen && (
+              <div id="control-pagos-submenu" className="ml-4 space-y-1 border-l border-sidebar-border pl-3">
+                {controlPagosNavItems.map((item) => {
+                  const isActive = location.pathname === item.path;
+                  const Icon = item.icon;
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                          : "text-sidebar-foreground hover:bg-sidebar-accent/50"
+                      )}
+                    >
+                      <Icon size={18} />
+                      {item.label}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </nav>
 
           {/* Authentication */}

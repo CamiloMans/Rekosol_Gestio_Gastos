@@ -22,7 +22,7 @@ import { ColorPicker } from '@/components/ColorPicker';
 export default function Empresas() {
   const { isAuthenticated } = useSharePointAuth();
   const { empresas: empresasSharePoint, loading: loadingEmpresas, error: errorEmpresas, createEmpresa, updateEmpresa, deleteEmpresa } = useEmpresas();
-  const { proyectos: proyectosSharePoint, loading: loadingProyectos, error: errorProyectos, createProyecto, deleteProyecto } = useProyectos();
+  const { proyectos: proyectosSharePoint, loading: loadingProyectos, error: errorProyectos, createProyecto, updateProyecto, deleteProyecto } = useProyectos();
   const { colaboradores: colaboradoresSharePoint, loading: loadingColaboradores, error: errorColaboradores, createColaborador, deleteColaborador } = useColaboradores();
   const { categorias: categoriasSharePoint, loading: loadingCategorias, error: errorCategorias, createCategoria, updateCategoria, deleteCategoria } = useCategorias();
   const { tiposDocumento: tiposDocumentoSharePoint, loading: loadingTiposDocumento, error: errorTiposDocumento, createTipoDocumento, updateTipoDocumento, deleteTipoDocumento } = useTiposDocumento();
@@ -373,7 +373,22 @@ export default function Empresas() {
 
   const handleSaveProyecto = async (newProyecto: Omit<Proyecto, 'id' | 'createdAt'>) => {
     try {
-      if (isAuthenticated) {
+      if (editingProyecto) {
+        if (isAuthenticated) {
+          await updateProyecto(editingProyecto.id, newProyecto);
+          toast({
+            title: "Proyecto actualizado",
+            description: "El proyecto se ha actualizado correctamente en SharePoint",
+            variant: "success",
+          });
+        } else {
+          toast({
+            title: "No autenticado",
+            description: "Por favor, inicia sesion para guardar en SharePoint",
+            variant: "destructive",
+          });
+        }
+      } else if (isAuthenticated) {
         await createProyecto(newProyecto);
         toast({
           title: "Proyecto guardado",

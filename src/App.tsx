@@ -12,6 +12,9 @@ import Reportes from "./pages/Reportes";
 import NotFound from "./pages/NotFound";
 import CheckFields from "./pages/CheckFields";
 import Login from "./pages/Login";
+import ControlPagosProyectos from "./pages/control-pagos/ControlPagosProyectos";
+import ControlPagosDocumentos from "./pages/control-pagos/ControlPagosDocumentos";
+import ControlPagosHitos from "./pages/control-pagos/ControlPagosHitos";
 
 const queryClient = new QueryClient();
 
@@ -51,6 +54,9 @@ const AppRoutes = () => {
       <Route path="/gastos" element={<Gastos />} />
       <Route path="/empresas" element={<Empresas />} />
       <Route path="/check-fields" element={<CheckFields />} />
+      <Route path="/control-pagos/proyectos" element={<ControlPagosProyectos />} />
+      <Route path="/control-pagos/documentos" element={<ControlPagosDocumentos />} />
+      <Route path="/control-pagos/hitos" element={<ControlPagosHitos />} />
       {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
       <Route path="*" element={<NotFound />} />
     </Routes>

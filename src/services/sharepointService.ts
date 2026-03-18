@@ -1,4 +1,11 @@
-import { getGraphClient, getSiteId, getAccessToken, getSharePointRestToken, getSharePointSiteUrl } from "@/lib/sharepointClient";
+import {
+  getGraphClient,
+  getGraphClientWithScopes,
+  getSiteId,
+  getAccessToken,
+  getSharePointRestToken,
+  getSharePointSiteUrl,
+} from "@/lib/sharepointClient";
 import { msalInstance } from "@/lib/msalConfig";
 import type { Gasto, Empresa, Proyecto, Colaborador } from "@/data/mockData";
 
@@ -13,12 +20,23 @@ const LISTS = {
   COLABORADORES: "COLABORADORES",
   CATEGORIAS: "CATEGORIAS",
   TIPOS_DOCUMENTO: "TIPO_DOCUMENTO",
+  DIM_TIPO_DOCUMENTO_PROY: "DIM_TIPO_DOCUMENTO_PROY",
+  FCT_DOCUMENTOS_PROY: "FCT_DOCUMENTOS_PROY",
+  FCT_HITOS_PAGO_PROY: "FCT_HITOS_PAGO_PROY",
 };
 
 // Document Library para archivos adjuntos
 const DOCUMENT_LIBRARY = "DocumentosGastos";
 const GASTOS_FETCH_LIMIT = 100;
 type GastosFetchMode = "recent" | "all";
+const CONTROL_PAGOS_SCHEMA_SCOPES = [
+  "https://graph.microsoft.com/Sites.Manage.All",
+  "https://graph.microsoft.com/Sites.ReadWrite.All",
+];
+
+async function getSchemaGraphClient() {
+  return getGraphClientWithScopes(CONTROL_PAGOS_SCHEMA_SCOPES);
+}
 
 /**
  * Obtiene el Site ID (cacheado para mejor rendimiento)
@@ -86,6 +104,151 @@ async function getListId(listName: string): Promise<string> {
     throw new Error(`Lista "${listName}" no encontrada en SharePoint`);
   } catch (error) {
     console.error(`Error al obtener List ID para ${listName}:`, error);
+    throw error;
+  }
+}
+
+function clearListIdsCache(): void {
+  try {
+    sessionStorage.removeItem(LIST_IDS_CACHE_KEY);
+  } catch (e) {
+    console.warn("Error al limpiar caché de listas:", e);
+  }
+}
+
+async function getListByName(listName: string, useSchemaClient = false): Promise<any | null> {
+  const client = useSchemaClient ? await getSchemaGraphClient() : await getGraphClient();
+  const siteId = await getCachedSiteId();
+
+  try {
+    const lists = await client
+      .api(`/sites/${siteId}/lists`)
+      .get();
+
+    if (!lists.value || lists.value.length === 0) {
+      return null;
+    }
+
+    return lists.value.find((list: any) =>
+      String(list.displayName || "").toUpperCase() === listName.toUpperCase()
+    ) || null;
+  } catch (error) {
+    console.error(`Error al buscar lista ${listName}:`, error);
+    throw error;
+  }
+}
+
+async function ensureList(listName: string): Promise<string> {
+  const client = await getSchemaGraphClient();
+  const siteId = await getCachedSiteId();
+
+  const existing = await getListByName(listName, true);
+  if (existing?.id) {
+    return existing.id;
+  }
+
+  try {
+    const created = await client
+      .api(`/sites/${siteId}/lists`)
+      .post({
+        displayName: listName,
+        list: {
+          template: "genericList",
+        },
+      });
+
+    clearListIdsCache();
+    return created.id;
+  } catch (error) {
+    console.error(`Error al crear lista ${listName}:`, error);
+    throw error;
+  }
+}
+
+function hasColumn(columns: any[], name: string): boolean {
+  return columns.some((col: any) => {
+    const displayName = String(col.displayName || "").toUpperCase();
+    const internalName = String(col.name || "").toUpperCase();
+    const target = name.toUpperCase();
+    return displayName === target || internalName === target;
+  });
+}
+
+async function ensureColumn(
+  listId: string,
+  name: string,
+  definition: Record<string, any>,
+): Promise<void> {
+  const client = await getSchemaGraphClient();
+  const siteId = await getCachedSiteId();
+
+  const columns = await client
+    .api(`/sites/${siteId}/lists/${listId}/columns`)
+    .get();
+
+  if (hasColumn(columns.value || [], name)) {
+    return;
+  }
+
+  try {
+    await client
+      .api(`/sites/${siteId}/lists/${listId}/columns`)
+      .post({
+        name,
+        ...definition,
+      });
+  } catch (error) {
+    console.error(`Error al crear columna ${name} en lista ${listId}:`, error);
+    throw error;
+  }
+}
+
+async function ensureLookupColumn(
+  listId: string,
+  columnName: string,
+  targetListId: string,
+  targetColumnName: string,
+): Promise<void> {
+  const client = await getSchemaGraphClient();
+  const siteId = await getCachedSiteId();
+
+  const columns = await client
+    .api(`/sites/${siteId}/lists/${listId}/columns`)
+    .get();
+
+  if (hasColumn(columns.value || [], columnName)) {
+    return;
+  }
+
+  const payload = {
+    name: columnName,
+    lookup: {
+      allowMultipleValues: false,
+      listId: targetListId,
+      columnName: targetColumnName,
+    },
+  };
+
+  try {
+    await client
+      .api(`/sites/${siteId}/lists/${listId}/columns`)
+      .post(payload);
+  } catch (error) {
+    // fallback típico cuando la columna objetivo no coincide en todos los tenants
+    if (targetColumnName.toUpperCase() !== "TITLE") {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/columns`)
+        .post({
+          ...payload,
+          lookup: {
+            ...payload.lookup,
+            columnName: "Title",
+          },
+        });
+      return;
+    }
+
+    console.error(`Error al crear lookup ${columnName}:`, error);
     throw error;
   }
 }
@@ -1295,6 +1458,32 @@ export const empresasService = {
 
 // ========== SERVICIOS PARA PROYECTOS ==========
 
+export type MonedaProyecto = "CLP" | "UF" | "USD";
+
+function normalizeProjectCode(code?: string): string {
+  return (code || "").trim().toUpperCase();
+}
+
+async function ensureUniqueProjectCode(
+  code: string,
+  excludeProjectId?: string,
+): Promise<void> {
+  const normalizedCode = normalizeProjectCode(code);
+  if (!normalizedCode) {
+    throw new Error("El código de proyecto es obligatorio");
+  }
+
+  const proyectos = await proyectosService.getAll();
+  const duplicated = proyectos.find((p) =>
+    normalizeProjectCode(p.codigoProyecto) === normalizedCode &&
+    String(p.id) !== String(excludeProjectId || "")
+  );
+
+  if (duplicated) {
+    throw new Error(`Ya existe un proyecto con código "${normalizedCode}"`);
+  }
+}
+
 export const proyectosService = {
   async getAll(): Promise<Proyecto[]> {
     const client = await getGraphClient();
@@ -1310,6 +1499,9 @@ export const proyectosService = {
       return response.value.map((item: any) => ({
         id: item.id,
         nombre: item.fields.NOM_PROYECTO || item.fields.NomProyecto || item.fields.Nombre || item.fields.Title || "",
+        codigoProyecto: item.fields.COD_PROYECTO || item.fields.CodProyecto || item.fields.CodigoProyecto || "",
+        montoTotalProyecto: item.fields.MONTO_TOTAL_PROY || item.fields.MontoTotalProy || undefined,
+        monedaBase: (item.fields.MONEDA_BASE || item.fields.MonedaBase || undefined) as MonedaProyecto | undefined,
         createdAt: item.fields.CreatedAt || item.createdDateTime || "",
       }));
     } catch (error) {
@@ -1324,10 +1516,22 @@ export const proyectosService = {
     const listId = await getListId(LISTS.PROYECTOS);
     
     try {
+      await ensureUniqueProjectCode(proyecto.codigoProyecto);
+
       // Mapeo usando el nombre real de la columna en SharePoint: NOM_PROYECTO
       const fields: any = {
+        Title: proyecto.nombre,
         NOM_PROYECTO: proyecto.nombre,
+        COD_PROYECTO: normalizeProjectCode(proyecto.codigoProyecto),
       };
+
+      if (proyecto.montoTotalProyecto !== undefined && proyecto.montoTotalProyecto !== null) {
+        fields.MONTO_TOTAL_PROY = Number(proyecto.montoTotalProyecto);
+      }
+
+      if (proyecto.monedaBase) {
+        fields.MONEDA_BASE = proyecto.monedaBase;
+      }
       
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
@@ -1338,10 +1542,53 @@ export const proyectosService = {
       return {
         id: response.id,
         ...proyecto,
+        codigoProyecto: normalizeProjectCode(proyecto.codigoProyecto),
         createdAt: new Date().toISOString().split("T")[0],
       };
     } catch (error) {
       console.error("Error al crear proyecto:", error);
+      throw error;
+    }
+  },
+
+  async update(id: string, proyecto: Partial<Proyecto>): Promise<Proyecto> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.PROYECTOS);
+
+    try {
+      const fields: any = {};
+
+      if (proyecto.nombre !== undefined) {
+        fields.NOM_PROYECTO = proyecto.nombre;
+        fields.Title = proyecto.nombre;
+      }
+
+      if (proyecto.codigoProyecto !== undefined) {
+        await ensureUniqueProjectCode(proyecto.codigoProyecto, id);
+        fields.COD_PROYECTO = normalizeProjectCode(proyecto.codigoProyecto);
+      }
+
+      if (proyecto.montoTotalProyecto !== undefined) {
+        fields.MONTO_TOTAL_PROY = proyecto.montoTotalProyecto === null
+          ? null
+          : Number(proyecto.montoTotalProyecto);
+      }
+
+      if (proyecto.monedaBase !== undefined) {
+        fields.MONEDA_BASE = proyecto.monedaBase || null;
+      }
+
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+        .patch(fields);
+
+      return {
+        id,
+        ...proyecto,
+      } as Proyecto;
+    } catch (error) {
+      console.error("Error al actualizar proyecto:", error);
       throw error;
     }
   },
@@ -1742,6 +1989,802 @@ export const tiposDocumentoService = {
     } catch (error) {
       console.error("Error al eliminar tipo de documento:", error);
       throw error;
+    }
+  },
+};
+
+// ========== SERVICIOS PARA CONTROL DE PAGOS ==========
+
+export interface TipoDocumentoProyecto {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  orden?: number;
+}
+
+export interface DocumentoProyecto {
+  id: string;
+  proyectoId: string;
+  codigoProyecto: string;
+  tipoDocumentoProyectoId: string;
+  tipoDocumentoNombre?: string;
+  fechaDocumento: string;
+  nroReferencia?: string;
+  observacion?: string;
+  archivoAdjunto?: { nombre: string; url: string; tipo: string };
+  createdAt: string;
+}
+
+export interface HitoPagoProyecto {
+  id: string;
+  proyectoId: string;
+  codigoProyecto: string;
+  nroHito: number;
+  montoHito: number;
+  moneda: MonedaProyecto;
+  fechaCompromiso: string;
+  fechaPago?: string;
+  facturado: boolean;
+  pagado: boolean;
+  observacion?: string;
+  createdAt: string;
+}
+
+export interface HitoPagoProyectoCreateInput {
+  proyectoId: string;
+  codigoProyecto: string;
+  montoHito: number;
+  moneda: MonedaProyecto;
+  fechaCompromiso: string;
+  fechaPago?: string;
+  facturado: boolean;
+  pagado: boolean;
+  observacion?: string;
+  nroHito?: number;
+}
+
+function normalizeUpper(value?: string): string {
+  return (value || "").trim().toUpperCase();
+}
+
+function parseBoolean(value: any, fallback = false): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "si", "sí", "yes"].includes(normalized)) return true;
+    if (["false", "0", "no"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function detectMimeType(fileName: string): string {
+  const extension = fileName.split(".").pop()?.toLowerCase();
+  const mimeMap: Record<string, string> = {
+    pdf: "application/pdf",
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  };
+  return (extension && mimeMap[extension]) || "application/octet-stream";
+}
+
+async function getListItemAttachments(
+  listName: string,
+  itemId: string,
+): Promise<Array<{ nombre: string; url: string; tipo: string }>> {
+  try {
+    const siteUrl = getSharePointSiteUrl();
+    const token = await getSharePointRestToken();
+    const endpoint = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${itemId})/AttachmentFiles`;
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        Accept: "application/json;odata=verbose",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const data = await response.json();
+    const origin = new URL(siteUrl).origin;
+    const results = data?.d?.results || [];
+
+    return results.map((att: any) => ({
+      nombre: att.FileName,
+      url: `${origin}${att.ServerRelativeUrl}`,
+      tipo: detectMimeType(att.FileName),
+    }));
+  } catch (error) {
+    console.warn("No se pudieron obtener adjuntos del item", { listName, itemId, error });
+    return [];
+  }
+}
+
+async function uploadListItemAttachment(
+  listName: string,
+  itemId: string,
+  file: File,
+): Promise<{ nombre: string; url: string; tipo: string }> {
+  const siteUrl = getSharePointSiteUrl();
+  const token = await getSharePointRestToken();
+  const encodedName = encodeURIComponent(file.name);
+  const endpoint = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${itemId})/AttachmentFiles/add(FileName='${encodedName}')`;
+  const arrayBuffer = await file.arrayBuffer();
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json;odata=verbose",
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/octet-stream",
+    },
+    body: arrayBuffer,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Error al subir adjunto: ${response.status} ${errorText}`);
+  }
+
+  const data = await response.json();
+  const origin = new URL(siteUrl).origin;
+  const fileInfo = data?.d || {};
+
+  return {
+    nombre: file.name,
+    url: fileInfo.ServerRelativeUrl ? `${origin}${fileInfo.ServerRelativeUrl}` : "",
+    tipo: file.type || detectMimeType(file.name),
+  };
+}
+
+export const tiposDocumentoProyectoService = {
+  async getAll(): Promise<TipoDocumentoProyecto[]> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.DIM_TIPO_DOCUMENTO_PROY);
+
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
+        .top(500)
+        .get();
+
+      return response.value.map((item: any) => ({
+        id: item.id,
+        nombre: normalizeUpper(item.fields.NOM_TIPO_DOCUMENTO || item.fields.Title || ""),
+        activo: parseBoolean(item.fields.ACTIVO, true),
+        orden: item.fields.ORDEN || undefined,
+      }));
+    } catch (error) {
+      console.error("Error al obtener tipos de documento de proyecto:", error);
+      throw error;
+    }
+  },
+
+  async create(tipo: Omit<TipoDocumentoProyecto, "id">): Promise<TipoDocumentoProyecto> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.DIM_TIPO_DOCUMENTO_PROY);
+    const nombre = normalizeUpper(tipo.nombre);
+
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .post({
+          fields: {
+            Title: nombre,
+            NOM_TIPO_DOCUMENTO: nombre,
+            ACTIVO: tipo.activo,
+            ORDEN: tipo.orden ?? null,
+          },
+        });
+
+      return {
+        id: response.id,
+        nombre,
+        activo: tipo.activo,
+        orden: tipo.orden,
+      };
+    } catch (error) {
+      console.error("Error al crear tipo de documento de proyecto:", error);
+      throw error;
+    }
+  },
+
+  async update(id: string, tipo: Partial<TipoDocumentoProyecto>): Promise<TipoDocumentoProyecto> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.DIM_TIPO_DOCUMENTO_PROY);
+    const fields: any = {};
+
+    if (tipo.nombre !== undefined) {
+      const nombre = normalizeUpper(tipo.nombre);
+      fields.Title = nombre;
+      fields.NOM_TIPO_DOCUMENTO = nombre;
+    }
+    if (tipo.activo !== undefined) fields.ACTIVO = tipo.activo;
+    if (tipo.orden !== undefined) fields.ORDEN = tipo.orden;
+
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+        .patch(fields);
+
+      return { id, ...tipo } as TipoDocumentoProyecto;
+    } catch (error) {
+      console.error("Error al actualizar tipo de documento de proyecto:", error);
+      throw error;
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.DIM_TIPO_DOCUMENTO_PROY);
+
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
+        .delete();
+    } catch (error) {
+      console.error("Error al eliminar tipo de documento de proyecto:", error);
+      throw error;
+    }
+  },
+
+  async seedDefaults(): Promise<void> {
+    const defaults = [
+      "CONTRATO",
+      "ORDEN DE COMPRA",
+      "FACTURA",
+      "PROPUESTA ADJUDICADA",
+      "OTROS",
+    ];
+
+    const current = await this.getAll();
+    const existing = new Set(current.map((item) => normalizeUpper(item.nombre)));
+
+    for (let i = 0; i < defaults.length; i += 1) {
+      const nombre = defaults[i];
+      if (!existing.has(nombre)) {
+        await this.create({
+          nombre,
+          activo: true,
+          orden: i + 1,
+        });
+      }
+    }
+  },
+};
+
+export const documentosProyectoService = {
+  async getAll(filters?: {
+    proyectoId?: string;
+    codigoProyecto?: string;
+    tipoDocumentoProyectoId?: string;
+  }): Promise<DocumentoProyecto[]> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_DOCUMENTOS_PROY);
+    const tipos = await tiposDocumentoProyectoService.getAll();
+    const tipoMap = new Map(tipos.map((t) => [String(t.id), t.nombre]));
+
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
+        .top(500)
+        .get();
+
+      let items = response.value.map((item: any) => {
+        const proyectoId = String(
+          item.fields.PROYECTOLookupId ||
+          item.fields.PROYECTO_x003a__x0020_IDLookupId ||
+          item.fields.PROYECTO ||
+          "",
+        );
+        const tipoDocumentoProyectoId = String(
+          item.fields.TIPO_DOCUMENTOLookupId ||
+          item.fields.TIPO_DOCUMENTO_x003a__x0020_IDLookupId ||
+          item.fields.TIPO_DOCUMENTO ||
+          "",
+        );
+
+        return {
+          id: item.id,
+          proyectoId,
+          codigoProyecto: item.fields.COD_PROYECTO || "",
+          tipoDocumentoProyectoId,
+          tipoDocumentoNombre: tipoMap.get(tipoDocumentoProyectoId),
+          fechaDocumento: item.fields.FECHA_DOCUMENTO || "",
+          nroReferencia: item.fields.NRO_REFERENCIA || undefined,
+          observacion: item.fields.OBSERVACION || undefined,
+          createdAt: item.fields.Created || item.createdDateTime || "",
+        } as DocumentoProyecto;
+      });
+
+      if (filters?.proyectoId) {
+        items = items.filter((item) => String(item.proyectoId) === String(filters.proyectoId));
+      }
+
+      if (filters?.codigoProyecto) {
+        const code = normalizeUpper(filters.codigoProyecto);
+        items = items.filter((item) => normalizeUpper(item.codigoProyecto) === code);
+      }
+
+      if (filters?.tipoDocumentoProyectoId) {
+        items = items.filter((item) =>
+          String(item.tipoDocumentoProyectoId) === String(filters.tipoDocumentoProyectoId)
+        );
+      }
+
+      const withAttachments = await Promise.all(
+        items.map(async (item) => {
+          const attachments = await getListItemAttachments(LISTS.FCT_DOCUMENTOS_PROY, item.id);
+          return {
+            ...item,
+            archivoAdjunto: attachments[0],
+          };
+        }),
+      );
+
+      return withAttachments;
+    } catch (error) {
+      console.error("Error al obtener documentos de proyecto:", error);
+      throw error;
+    }
+  },
+
+  async create(input: {
+    proyectoId: string;
+    codigoProyecto: string;
+    tipoDocumentoProyectoId: string;
+    fechaDocumento: string;
+    nroReferencia?: string;
+    observacion?: string;
+    archivo: File;
+  }): Promise<DocumentoProyecto> {
+    if (!input.archivo) {
+      throw new Error("Debes adjuntar exactamente 1 archivo");
+    }
+
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_DOCUMENTOS_PROY);
+    const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
+    const tipoDocumentoColumnName = await getColumnInternalName(listId, "TIPO_DOCUMENTO");
+    const proyectoLookupId = Number(input.proyectoId);
+    const tipoDocumentoLookupId = Number(input.tipoDocumentoProyectoId);
+
+    if (Number.isNaN(proyectoLookupId) || Number.isNaN(tipoDocumentoLookupId)) {
+      throw new Error("IDs de lookup inválidos para el documento de proyecto");
+    }
+
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .post({
+          fields: {
+            COD_PROYECTO: normalizeUpper(input.codigoProyecto),
+            FECHA_DOCUMENTO: input.fechaDocumento,
+            NRO_REFERENCIA: input.nroReferencia || "",
+            OBSERVACION: input.observacion || "",
+          },
+        });
+
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${response.id}/fields`)
+        .patch({
+          [`${proyectoColumnName}LookupId`]: proyectoLookupId,
+          [`${tipoDocumentoColumnName}LookupId`]: tipoDocumentoLookupId,
+        });
+
+      const archivoAdjunto = await uploadListItemAttachment(
+        LISTS.FCT_DOCUMENTOS_PROY,
+        response.id,
+        input.archivo,
+      );
+
+      return {
+        id: response.id,
+        proyectoId: String(input.proyectoId),
+        codigoProyecto: normalizeUpper(input.codigoProyecto),
+        tipoDocumentoProyectoId: String(input.tipoDocumentoProyectoId),
+        fechaDocumento: input.fechaDocumento,
+        nroReferencia: input.nroReferencia,
+        observacion: input.observacion,
+        archivoAdjunto,
+        createdAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error("Error al crear documento de proyecto:", error);
+      throw error;
+    }
+  },
+
+  async update(id: string, payload: Partial<DocumentoProyecto>): Promise<DocumentoProyecto> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_DOCUMENTOS_PROY);
+    const fields: any = {};
+
+    if (payload.codigoProyecto !== undefined) fields.COD_PROYECTO = normalizeUpper(payload.codigoProyecto);
+    if (payload.fechaDocumento !== undefined) fields.FECHA_DOCUMENTO = payload.fechaDocumento;
+    if (payload.nroReferencia !== undefined) fields.NRO_REFERENCIA = payload.nroReferencia || "";
+    if (payload.observacion !== undefined) fields.OBSERVACION = payload.observacion || "";
+
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+        .patch(fields);
+
+      if (payload.proyectoId !== undefined || payload.tipoDocumentoProyectoId !== undefined) {
+        const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
+        const tipoDocumentoColumnName = await getColumnInternalName(listId, "TIPO_DOCUMENTO");
+        const lookupFields: any = {};
+        if (payload.proyectoId !== undefined) {
+          lookupFields[`${proyectoColumnName}LookupId`] = Number(payload.proyectoId);
+        }
+        if (payload.tipoDocumentoProyectoId !== undefined) {
+          lookupFields[`${tipoDocumentoColumnName}LookupId`] = Number(payload.tipoDocumentoProyectoId);
+        }
+
+        await client
+          .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+          .patch(lookupFields);
+      }
+
+      return { id, ...payload } as DocumentoProyecto;
+    } catch (error) {
+      console.error("Error al actualizar documento de proyecto:", error);
+      throw error;
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_DOCUMENTOS_PROY);
+
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
+        .delete();
+    } catch (error) {
+      console.error("Error al eliminar documento de proyecto:", error);
+      throw error;
+    }
+  },
+};
+
+export const hitosPagoProyectoService = {
+  async getAll(filters?: {
+    proyectoId?: string;
+    codigoProyecto?: string;
+  }): Promise<HitoPagoProyecto[]> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_HITOS_PAGO_PROY);
+
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
+        .top(500)
+        .get();
+
+      let items: HitoPagoProyecto[] = response.value.map((item: any) => ({
+        id: item.id,
+        proyectoId: String(
+          item.fields.PROYECTOLookupId ||
+          item.fields.PROYECTO_x003a__x0020_IDLookupId ||
+          item.fields.PROYECTO ||
+          "",
+        ),
+        codigoProyecto: item.fields.COD_PROYECTO || "",
+        nroHito: Number(item.fields.NRO_HITO || 0),
+        montoHito: Number(item.fields.MONTO_HITO || 0),
+        moneda: (item.fields.MONEDA || "CLP") as MonedaProyecto,
+        fechaCompromiso: item.fields.FECHA_COMPROMISO || "",
+        fechaPago: item.fields.FECHA_PAGO || undefined,
+        facturado: parseBoolean(item.fields.FACTURADO, false),
+        pagado: parseBoolean(item.fields.PAGADO, false),
+        observacion: item.fields.OBSERVACION || undefined,
+        createdAt: item.fields.Created || item.createdDateTime || "",
+      }));
+
+      if (filters?.proyectoId) {
+        items = items.filter((item) => String(item.proyectoId) === String(filters.proyectoId));
+      }
+
+      if (filters?.codigoProyecto) {
+        const code = normalizeUpper(filters.codigoProyecto);
+        items = items.filter((item) => normalizeUpper(item.codigoProyecto) === code);
+      }
+
+      return items.sort((a, b) => a.nroHito - b.nroHito);
+    } catch (error) {
+      console.error("Error al obtener hitos de pago:", error);
+      throw error;
+    }
+  },
+
+  async getNextHitoNumber(proyectoId: string): Promise<number> {
+    const hitos = await this.getAll({ proyectoId });
+    if (!hitos.length) return 1;
+    return Math.max(...hitos.map((h) => Number(h.nroHito || 0))) + 1;
+  },
+
+  async create(input: HitoPagoProyectoCreateInput): Promise<HitoPagoProyecto> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_HITOS_PAGO_PROY);
+    const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
+    const nroHito = input.nroHito ?? await this.getNextHitoNumber(input.proyectoId);
+    const proyectoLookupId = Number(input.proyectoId);
+
+    if (Number.isNaN(proyectoLookupId)) {
+      throw new Error("ID de proyecto inválido para crear hito");
+    }
+
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .post({
+          fields: {
+            COD_PROYECTO: normalizeUpper(input.codigoProyecto),
+            NRO_HITO: nroHito,
+            MONTO_HITO: Number(input.montoHito),
+            MONEDA: input.moneda,
+            FECHA_COMPROMISO: input.fechaCompromiso,
+            FECHA_PAGO: input.fechaPago || null,
+            FACTURADO: input.facturado,
+            PAGADO: input.pagado,
+            OBSERVACION: input.observacion || "",
+          },
+        });
+
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${response.id}/fields`)
+        .patch({
+          [`${proyectoColumnName}LookupId`]: proyectoLookupId,
+        });
+
+      return {
+        id: response.id,
+        proyectoId: input.proyectoId,
+        codigoProyecto: normalizeUpper(input.codigoProyecto),
+        nroHito,
+        montoHito: Number(input.montoHito),
+        moneda: input.moneda,
+        fechaCompromiso: input.fechaCompromiso,
+        fechaPago: input.fechaPago,
+        facturado: input.facturado,
+        pagado: input.pagado,
+        observacion: input.observacion,
+        createdAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error("Error al crear hito de pago:", error);
+      throw error;
+    }
+  },
+
+  async update(id: string, payload: Partial<HitoPagoProyecto>): Promise<HitoPagoProyecto> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_HITOS_PAGO_PROY);
+    const fields: any = {};
+
+    if (payload.codigoProyecto !== undefined) fields.COD_PROYECTO = normalizeUpper(payload.codigoProyecto);
+    if (payload.nroHito !== undefined) fields.NRO_HITO = Number(payload.nroHito);
+    if (payload.montoHito !== undefined) fields.MONTO_HITO = Number(payload.montoHito);
+    if (payload.moneda !== undefined) fields.MONEDA = payload.moneda;
+    if (payload.fechaCompromiso !== undefined) fields.FECHA_COMPROMISO = payload.fechaCompromiso;
+    if (payload.fechaPago !== undefined) fields.FECHA_PAGO = payload.fechaPago || null;
+    if (payload.facturado !== undefined) fields.FACTURADO = payload.facturado;
+    if (payload.pagado !== undefined) fields.PAGADO = payload.pagado;
+    if (payload.observacion !== undefined) fields.OBSERVACION = payload.observacion || "";
+
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+        .patch(fields);
+
+      if (payload.proyectoId !== undefined) {
+        const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
+        await client
+          .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+          .patch({
+            [`${proyectoColumnName}LookupId`]: Number(payload.proyectoId),
+          });
+      }
+
+      return { id, ...payload } as HitoPagoProyecto;
+    } catch (error) {
+      console.error("Error al actualizar hito de pago:", error);
+      throw error;
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_HITOS_PAGO_PROY);
+
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
+        .delete();
+    } catch (error) {
+      console.error("Error al eliminar hito de pago:", error);
+      throw error;
+    }
+  },
+};
+
+function normalizeProvisioningError(error: any): Error {
+  const rawMessage = String(
+    error?.message ||
+    error?.error?.message ||
+    error?.body ||
+    error ||
+    "Error desconocido",
+  );
+  const message = rawMessage.toLowerCase();
+
+  if (
+    message.includes("access denied") ||
+    message.includes("insufficient privileges") ||
+    message.includes("forbidden")
+  ) {
+    return new Error(
+      "Access denied al crear listas/columnas. Necesitas permisos de administrador del sitio y consentimiento de 'Sites.Manage.All' en Azure.",
+    );
+  }
+
+  if (
+    message.includes("consent") ||
+    message.includes("aadsts65001") ||
+    message.includes("interaction_required")
+  ) {
+    return new Error(
+      "Falta consentimiento para permisos de aprovisionamiento. Solicita aprobar 'Sites.Manage.All' y vuelve a intentar.",
+    );
+  }
+
+  return new Error(rawMessage);
+}
+
+export const controlPagosSchemaService = {
+  async getSchemaStatus(): Promise<{
+    isReady: boolean;
+    missing: Array<{ list: string; columns: string[] }>;
+  }> {
+    const requiredColumns: Record<string, string[]> = {
+      [LISTS.PROYECTOS]: ["COD_PROYECTO", "MONTO_TOTAL_PROY", "MONEDA_BASE"],
+      [LISTS.DIM_TIPO_DOCUMENTO_PROY]: ["NOM_TIPO_DOCUMENTO", "ACTIVO", "ORDEN"],
+      [LISTS.FCT_DOCUMENTOS_PROY]: [
+        "PROYECTO",
+        "COD_PROYECTO",
+        "TIPO_DOCUMENTO",
+        "FECHA_DOCUMENTO",
+        "NRO_REFERENCIA",
+        "OBSERVACION",
+      ],
+      [LISTS.FCT_HITOS_PAGO_PROY]: [
+        "PROYECTO",
+        "COD_PROYECTO",
+        "NRO_HITO",
+        "MONTO_HITO",
+        "MONEDA",
+        "FECHA_COMPROMISO",
+        "FECHA_PAGO",
+        "FACTURADO",
+        "PAGADO",
+        "OBSERVACION",
+      ],
+    };
+
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const missing: Array<{ list: string; columns: string[] }> = [];
+
+    for (const [listName, columns] of Object.entries(requiredColumns)) {
+      const list = await getListByName(listName);
+      if (!list?.id) {
+        missing.push({ list: listName, columns: [...columns] });
+        continue;
+      }
+
+      const response = await client
+        .api(`/sites/${siteId}/lists/${list.id}/columns`)
+        .get();
+
+      const absent = columns.filter((column) => !hasColumn(response.value || [], column));
+      if (absent.length > 0) {
+        missing.push({ list: listName, columns: absent });
+      }
+    }
+
+    return {
+      isReady: missing.length === 0,
+      missing,
+    };
+  },
+
+  async ensureControlPagosSchema(): Promise<void> {
+    try {
+    // 1) Listas base
+    const proyectosListId = await ensureList(LISTS.PROYECTOS);
+    const tiposListId = await ensureList(LISTS.DIM_TIPO_DOCUMENTO_PROY);
+    const documentosListId = await ensureList(LISTS.FCT_DOCUMENTOS_PROY);
+    const hitosListId = await ensureList(LISTS.FCT_HITOS_PAGO_PROY);
+
+    // 2) Extensión de PROYECTOS
+    await ensureColumn(proyectosListId, "COD_PROYECTO", { text: {} });
+    await ensureColumn(proyectosListId, "MONTO_TOTAL_PROY", {
+      number: { decimalPlaces: "automatic", displayAs: "number" },
+    });
+    await ensureColumn(proyectosListId, "MONEDA_BASE", {
+      choice: { allowTextEntry: false, choices: ["CLP", "UF", "USD"] },
+    });
+
+    // 3) DIM_TIPO_DOCUMENTO_PROY
+    await ensureColumn(tiposListId, "NOM_TIPO_DOCUMENTO", { text: {} });
+    await ensureColumn(tiposListId, "ACTIVO", { boolean: {} });
+    await ensureColumn(tiposListId, "ORDEN", {
+      number: { decimalPlaces: "none", displayAs: "number" },
+    });
+
+    // 4) FCT_DOCUMENTOS_PROY
+    await ensureColumn(documentosListId, "COD_PROYECTO", { text: {} });
+    await ensureColumn(documentosListId, "FECHA_DOCUMENTO", {
+      dateTime: { format: "dateOnly", displayAs: "default" },
+    });
+    await ensureColumn(documentosListId, "NRO_REFERENCIA", { text: {} });
+    await ensureColumn(documentosListId, "OBSERVACION", { text: { allowMultipleLines: true } });
+    await ensureLookupColumn(documentosListId, "PROYECTO", proyectosListId, "NOM_PROYECTO");
+    await ensureLookupColumn(documentosListId, "TIPO_DOCUMENTO", tiposListId, "NOM_TIPO_DOCUMENTO");
+
+    // 5) FCT_HITOS_PAGO_PROY
+    await ensureColumn(hitosListId, "COD_PROYECTO", { text: {} });
+    await ensureColumn(hitosListId, "NRO_HITO", {
+      number: { decimalPlaces: "none", displayAs: "number" },
+    });
+    await ensureColumn(hitosListId, "MONTO_HITO", {
+      number: { decimalPlaces: "automatic", displayAs: "number" },
+    });
+    await ensureColumn(hitosListId, "MONEDA", {
+      choice: { allowTextEntry: false, choices: ["CLP", "UF", "USD"] },
+    });
+    await ensureColumn(hitosListId, "FECHA_COMPROMISO", {
+      dateTime: { format: "dateOnly", displayAs: "default" },
+    });
+    await ensureColumn(hitosListId, "FECHA_PAGO", {
+      dateTime: { format: "dateOnly", displayAs: "default" },
+    });
+    await ensureColumn(hitosListId, "FACTURADO", { boolean: {} });
+    await ensureColumn(hitosListId, "PAGADO", { boolean: {} });
+    await ensureColumn(hitosListId, "OBSERVACION", { text: { allowMultipleLines: true } });
+    await ensureLookupColumn(hitosListId, "PROYECTO", proyectosListId, "NOM_PROYECTO");
+
+    // 6) Seed catálogo
+    await tiposDocumentoProyectoService.seedDefaults();
+
+    clearListIdsCache();
+    } catch (error: any) {
+      throw normalizeProvisioningError(error);
     }
   },
 };

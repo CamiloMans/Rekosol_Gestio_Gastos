@@ -11,6 +11,9 @@ export interface Empresa {
 export interface Proyecto {
   id: string;
   nombre: string;
+  codigoProyecto?: string;
+  montoTotalProyecto?: number;
+  monedaBase?: 'CLP' | 'UF' | 'USD';
   createdAt: string;
 }
 

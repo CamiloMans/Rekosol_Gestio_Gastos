@@ -9,8 +9,16 @@ import {
   colaboradoresService,
   categoriasService,
   tiposDocumentoService,
+  controlPagosSchemaService,
+  tiposDocumentoProyectoService,
+  documentosProyectoService,
+  hitosPagoProyectoService,
   type Categoria,
   type TipoDocumento,
+  type TipoDocumentoProyecto,
+  type DocumentoProyecto,
+  type HitoPagoProyecto,
+  type HitoPagoProyectoCreateInput,
 } from "@/services/sharepointService";
 
 export function useSharePointAuth() {
@@ -325,6 +333,17 @@ export function useProyectos() {
     }
   };
 
+  const updateProyecto = async (id: string, proyecto: Partial<Proyecto>) => {
+    try {
+      const proyectoActualizado = await proyectosService.update(id, proyecto);
+      setProyectos(proyectos.map((p) => (p.id === id ? { ...p, ...proyectoActualizado } : p)));
+      return proyectoActualizado;
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al actualizar proyecto"));
+      throw err;
+    }
+  };
+
   const deleteProyecto = async (id: string) => {
     try {
       await proyectosService.delete(id);
@@ -347,6 +366,7 @@ export function useProyectos() {
     error,
     loadProyectos,
     createProyecto,
+    updateProyecto,
     deleteProyecto,
   };
 }
@@ -648,5 +668,238 @@ export function useTiposDocumento() {
     createTipoDocumento,
     updateTipoDocumento,
     deleteTipoDocumento,
+  };
+}
+
+export function useControlPagosSchema() {
+  const { isAuthenticated } = useSharePointAuth();
+  const [loading, setLoading] = useState(false);
+  const [initializing, setInitializing] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [missing, setMissing] = useState<Array<{ list: string; columns: string[] }>>([]);
+  const [error, setError] = useState<Error | null>(null);
+
+  const checkSchema = async () => {
+    if (!isAuthenticated) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const status = await controlPagosSchemaService.getSchemaStatus();
+      setIsReady(status.isReady);
+      setMissing(status.missing);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al verificar esquema"));
+      setIsReady(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const initializeSchema = async () => {
+    if (!isAuthenticated) return;
+
+    setInitializing(true);
+    setError(null);
+    try {
+      await controlPagosSchemaService.ensureControlPagosSchema();
+      await checkSchema();
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al inicializar esquema"));
+    } finally {
+      setInitializing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      checkSchema();
+    }
+  }, [isAuthenticated]);
+
+  return {
+    isReady,
+    missing,
+    loading,
+    initializing,
+    error,
+    checkSchema,
+    initializeSchema,
+  };
+}
+
+export function useTiposDocumentoProyecto() {
+  const { isAuthenticated } = useSharePointAuth();
+  const [tiposDocumentoProyecto, setTiposDocumentoProyecto] = useState<TipoDocumentoProyecto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const loadTiposDocumentoProyecto = async () => {
+    if (!isAuthenticated) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await tiposDocumentoProyectoService.getAll();
+      setTiposDocumentoProyecto(data);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al cargar tipos de documento de proyecto"));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createTipoDocumentoProyecto = async (payload: Omit<TipoDocumentoProyecto, "id">) => {
+    const created = await tiposDocumentoProyectoService.create(payload);
+    setTiposDocumentoProyecto((prev) => [...prev, created]);
+    return created;
+  };
+
+  const updateTipoDocumentoProyecto = async (id: string, payload: Partial<TipoDocumentoProyecto>) => {
+    await tiposDocumentoProyectoService.update(id, payload);
+    setTiposDocumentoProyecto((prev) => prev.map((item) => (item.id === id ? { ...item, ...payload } : item)));
+  };
+
+  const deleteTipoDocumentoProyecto = async (id: string) => {
+    await tiposDocumentoProyectoService.delete(id);
+    setTiposDocumentoProyecto((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadTiposDocumentoProyecto();
+    }
+  }, [isAuthenticated]);
+
+  return {
+    tiposDocumentoProyecto,
+    loading,
+    error,
+    loadTiposDocumentoProyecto,
+    createTipoDocumentoProyecto,
+    updateTipoDocumentoProyecto,
+    deleteTipoDocumentoProyecto,
+  };
+}
+
+export function useDocumentosProyecto() {
+  const { isAuthenticated } = useSharePointAuth();
+  const [documentosProyecto, setDocumentosProyecto] = useState<DocumentoProyecto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const loadDocumentosProyecto = async (filters?: {
+    proyectoId?: string;
+    codigoProyecto?: string;
+    tipoDocumentoProyectoId?: string;
+  }) => {
+    if (!isAuthenticated) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await documentosProyectoService.getAll(filters);
+      setDocumentosProyecto(data);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al cargar documentos de proyecto"));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createDocumentoProyecto = async (payload: Parameters<typeof documentosProyectoService.create>[0]) => {
+    const created = await documentosProyectoService.create(payload);
+    setDocumentosProyecto((prev) => [...prev, created]);
+    return created;
+  };
+
+  const updateDocumentoProyecto = async (id: string, payload: Partial<DocumentoProyecto>) => {
+    await documentosProyectoService.update(id, payload);
+    setDocumentosProyecto((prev) => prev.map((item) => (item.id === id ? { ...item, ...payload } : item)));
+  };
+
+  const deleteDocumentoProyecto = async (id: string) => {
+    await documentosProyectoService.delete(id);
+    setDocumentosProyecto((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadDocumentosProyecto();
+    }
+  }, [isAuthenticated]);
+
+  return {
+    documentosProyecto,
+    loading,
+    error,
+    loadDocumentosProyecto,
+    createDocumentoProyecto,
+    updateDocumentoProyecto,
+    deleteDocumentoProyecto,
+  };
+}
+
+export function useHitosPagoProyecto() {
+  const { isAuthenticated } = useSharePointAuth();
+  const [hitosPagoProyecto, setHitosPagoProyecto] = useState<HitoPagoProyecto[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const loadHitosPagoProyecto = async (filters?: {
+    proyectoId?: string;
+    codigoProyecto?: string;
+  }) => {
+    if (!isAuthenticated) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await hitosPagoProyectoService.getAll(filters);
+      setHitosPagoProyecto(data);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al cargar hitos de pago"));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createHitoPagoProyecto = async (payload: HitoPagoProyectoCreateInput) => {
+    const created = await hitosPagoProyectoService.create(payload);
+    setHitosPagoProyecto((prev) => [...prev, created].sort((a, b) => a.nroHito - b.nroHito));
+    return created;
+  };
+
+  const updateHitoPagoProyecto = async (id: string, payload: Partial<HitoPagoProyecto>) => {
+    await hitosPagoProyectoService.update(id, payload);
+    setHitosPagoProyecto((prev) =>
+      prev
+        .map((item) => (item.id === id ? { ...item, ...payload } : item))
+        .sort((a, b) => a.nroHito - b.nroHito)
+    );
+  };
+
+  const deleteHitoPagoProyecto = async (id: string) => {
+    await hitosPagoProyectoService.delete(id);
+    setHitosPagoProyecto((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      loadHitosPagoProyecto();
+    }
+  }, [isAuthenticated]);
+
+  return {
+    hitosPagoProyecto,
+    loading,
+    error,
+    loadHitosPagoProyecto,
+    createHitoPagoProyecto,
+    updateHitoPagoProyecto,
+    deleteHitoPagoProyecto,
   };
 }

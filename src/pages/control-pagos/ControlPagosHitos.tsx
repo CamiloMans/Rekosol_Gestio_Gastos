@@ -753,7 +753,7 @@ export default function ControlPagosHitos() {
           if (!open) setDeleteId(null);
         }}
         title="Eliminar hito"
-        description="Â¿Seguro que deseas eliminar este hito? Esta acciÃ³n no se puede deshacer."
+        description="¿Seguro que deseas eliminar este hito? Esta acción no se puede deshacer."
         onConfirm={confirmDelete}
         confirmText="Eliminar"
         cancelText="Cancelar"

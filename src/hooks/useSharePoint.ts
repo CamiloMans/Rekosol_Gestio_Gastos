@@ -12,11 +12,13 @@ import {
   controlPagosSchemaService,
   tiposDocumentoProyectoService,
   documentosProyectoService,
+  documentosHitoService,
   hitosPagoProyectoService,
   type Categoria,
   type TipoDocumento,
   type TipoDocumentoProyecto,
   type DocumentoProyecto,
+  type DocumentoHito,
   type HitoPagoProyecto,
   type HitoPagoProyectoCreateInput,
 } from "@/services/sharepointService";
@@ -1111,6 +1113,59 @@ export function useDocumentosProyecto(options: { autoLoad?: boolean } = {}) {
     createDocumentoProyecto,
     updateDocumentoProyecto,
     deleteDocumentoProyecto,
+  };
+}
+
+export function useDocumentosHito(options: { autoLoad?: boolean } = {}) {
+  const { autoLoad = true } = options;
+  const { isAuthenticated } = useSharePointAuth();
+  const [documentosHito, setDocumentosHito] = useState<DocumentoHito[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const loadDocumentosHito = async (filters?: {
+    proyectoId?: string;
+    hito?: number;
+  }) => {
+    if (!isAuthenticated) return;
+
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await documentosHitoService.getAll(filters);
+      setDocumentosHito(data);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al cargar documentos de hito"));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createDocumentoHito = async (payload: Parameters<typeof documentosHitoService.create>[0]) => {
+    const created = await documentosHitoService.create(payload);
+    setDocumentosHito((prev) => [created, ...prev]);
+    return created;
+  };
+
+  const deleteDocumentoHito = async (id: string) => {
+    await documentosHitoService.delete(id);
+    setDocumentosHito((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  useEffect(() => {
+    if (isAuthenticated && autoLoad) {
+      loadDocumentosHito();
+    }
+  }, [isAuthenticated, autoLoad]);
+
+  return {
+    documentosHito,
+    loading,
+    error,
+    loadDocumentosHito,
+    createDocumentoHito,
+    deleteDocumentoHito,
   };
 }
 

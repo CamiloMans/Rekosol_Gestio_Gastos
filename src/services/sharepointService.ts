@@ -22,6 +22,7 @@ const LISTS = {
   TIPOS_DOCUMENTO: "TIPO_DOCUMENTO",
   DIM_TIPO_DOCUMENTO_PROY: "DIM_TIPO_DOCUMENTO_PROY",
   FCT_DOCUMENTOS_PROY: "FCT_DOCUMENTOS_PROY",
+  FCT_DOCUMENTOS_HITO: "FCT_DOCUMENTOS_HITO",
   FCT_HITOS_PAGO_PROY: "FCT_HITOS_PAGO_PROY",
 };
 
@@ -2161,6 +2162,22 @@ export interface DocumentoProyecto {
   createdAt: string;
 }
 
+export interface DocumentoHito {
+  id: string;
+  proyectoId: string;
+  codigoProyecto: string;
+  hito: number;
+  archivoAdjunto?: { nombre: string; url: string; tipo: string };
+  createdAt: string;
+}
+
+export interface DocumentoHitoCreateInput {
+  proyectoId: string;
+  codigoProyecto?: string;
+  hito: number;
+  archivo: File;
+}
+
 export interface HitoPagoProyecto {
   id: string;
   proyectoId: string;
@@ -2603,7 +2620,6 @@ export const documentosProyectoService = {
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .post({
           fields: {
-            COD_PROYECTO: normalizeUpper(input.codigoProyecto),
             FECHA_DOCUMENTO: input.fechaDocumento,
             NRO_REFERENCIA: input.nroReferencia || "",
             OBSERVACION: input.observacion || "",
@@ -2650,7 +2666,6 @@ export const documentosProyectoService = {
     const { archivo, ...fieldsPayload } = payload;
     const fields: any = {};
 
-    if (fieldsPayload.codigoProyecto !== undefined) fields.COD_PROYECTO = normalizeUpper(fieldsPayload.codigoProyecto);
     if (fieldsPayload.fechaDocumento !== undefined) fields.FECHA_DOCUMENTO = fieldsPayload.fechaDocumento;
     if (fieldsPayload.nroReferencia !== undefined) fields.NRO_REFERENCIA = fieldsPayload.nroReferencia || "";
     if (fieldsPayload.observacion !== undefined) fields.OBSERVACION = fieldsPayload.observacion || "";
@@ -2711,6 +2726,134 @@ export const documentosProyectoService = {
         .delete();
     } catch (error) {
       console.error("Error al eliminar documento de proyecto:", error);
+      throw error;
+    }
+  },
+};
+
+export const documentosHitoService = {
+  async getAll(filters?: {
+    proyectoId?: string;
+    hito?: number;
+  }): Promise<DocumentoHito[]> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_DOCUMENTOS_HITO);
+
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .expand("fields")
+        .top(500)
+        .get();
+
+      let items: DocumentoHito[] = response.value.map((item: any) => ({
+        id: item.id,
+        proyectoId: String(
+          item.fields.PROYECTOLookupId ||
+          item.fields.PROYECTO_x003a__x0020_IDLookupId ||
+          item.fields.PROYECTO ||
+          "",
+        ),
+        codigoProyecto: item.fields.COD_PROYECTO || "",
+        hito: Number(item.fields.HITO || 0),
+        createdAt: item.fields.Created || item.createdDateTime || "",
+      }));
+
+      if (filters?.proyectoId) {
+        items = items.filter((item) => String(item.proyectoId) === String(filters.proyectoId));
+      }
+
+      if (filters?.hito !== undefined) {
+        items = items.filter((item) => Number(item.hito) === Number(filters.hito));
+      }
+
+      const withAttachments = await Promise.all(
+        items.map(async (item) => {
+          const attachments = await getListItemAttachments(LISTS.FCT_DOCUMENTOS_HITO, item.id);
+          return {
+            ...item,
+            archivoAdjunto: attachments[0],
+          };
+        }),
+      );
+
+      return withAttachments.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    } catch (error) {
+      console.error("Error al obtener documentos de hito:", error);
+      throw error;
+    }
+  },
+
+  async create(input: DocumentoHitoCreateInput): Promise<DocumentoHito> {
+    if (!input.archivo) {
+      throw new Error("Debes adjuntar al menos 1 archivo");
+    }
+
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_DOCUMENTOS_HITO);
+    const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
+    const proyectoLookupId = Number(input.proyectoId);
+    const hito = Number(input.hito);
+
+    if (Number.isNaN(proyectoLookupId)) {
+      throw new Error("ID de proyecto inválido para guardar documento de hito");
+    }
+
+    if (!Number.isFinite(hito) || hito <= 0) {
+      throw new Error("Número de hito inválido para guardar documento");
+    }
+
+    try {
+      const response = await client
+        .api(`/sites/${siteId}/lists/${listId}/items`)
+        .post({
+          fields: {
+            HITO: hito,
+          },
+        });
+
+      await ensureProyectoLookupSaved({
+        client,
+        siteId,
+        listId,
+        itemId: response.id,
+        proyectoColumnName,
+        proyectoLookupId,
+      });
+
+      const archivoAdjunto = await uploadListItemAttachment(
+        LISTS.FCT_DOCUMENTOS_HITO,
+        response.id,
+        input.archivo,
+      );
+
+      return {
+        id: response.id,
+        proyectoId: String(input.proyectoId),
+        codigoProyecto: normalizeUpper(input.codigoProyecto),
+        hito,
+        archivoAdjunto,
+        createdAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error("Error al crear documento de hito:", error);
+      throw error;
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.FCT_DOCUMENTOS_HITO);
+
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
+        .delete();
+    } catch (error) {
+      console.error("Error al eliminar documento de hito:", error);
       throw error;
     }
   },
@@ -2791,11 +2934,10 @@ export const hitosPagoProyectoService = {
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .post({
           fields: {
-            COD_PROYECTO: normalizeUpper(input.codigoProyecto),
             NRO_HITO: nroHito,
             MONTO_HITO: Number(input.montoHito),
             MONEDA: input.moneda,
-            FECHA_COMPROMISO: input.fechaCompromiso,
+            FECHA_COMPROMISO: input.fechaCompromiso || null,
             FECHA_PAGO: input.fechaPago || null,
             FACTURADO: input.facturado,
             PAGADO: input.pagado,
@@ -2819,7 +2961,7 @@ export const hitosPagoProyectoService = {
         nroHito,
         montoHito: Number(input.montoHito),
         moneda: input.moneda,
-        fechaCompromiso: input.fechaCompromiso,
+        fechaCompromiso: input.fechaCompromiso || "",
         fechaPago: input.fechaPago,
         facturado: input.facturado,
         pagado: input.pagado,
@@ -2838,11 +2980,10 @@ export const hitosPagoProyectoService = {
     const listId = await getListId(LISTS.FCT_HITOS_PAGO_PROY);
     const fields: any = {};
 
-    if (payload.codigoProyecto !== undefined) fields.COD_PROYECTO = normalizeUpper(payload.codigoProyecto);
     if (payload.nroHito !== undefined) fields.NRO_HITO = Number(payload.nroHito);
     if (payload.montoHito !== undefined) fields.MONTO_HITO = Number(payload.montoHito);
     if (payload.moneda !== undefined) fields.MONEDA = payload.moneda;
-    if (payload.fechaCompromiso !== undefined) fields.FECHA_COMPROMISO = payload.fechaCompromiso;
+    if (payload.fechaCompromiso !== undefined) fields.FECHA_COMPROMISO = payload.fechaCompromiso || null;
     if (payload.fechaPago !== undefined) fields.FECHA_PAGO = payload.fechaPago || null;
     if (payload.facturado !== undefined) fields.FACTURADO = payload.facturado;
     if (payload.pagado !== undefined) fields.PAGADO = payload.pagado;
@@ -2935,15 +3076,17 @@ export const controlPagosSchemaService = {
       [LISTS.DIM_TIPO_DOCUMENTO_PROY]: ["NOM_TIPO_DOCUMENTO", "ACTIVO", "ORDEN"],
       [LISTS.FCT_DOCUMENTOS_PROY]: [
         "PROYECTO",
-        "COD_PROYECTO",
         "TIPO_DOCUMENTO",
         "FECHA_DOCUMENTO",
         "NRO_REFERENCIA",
         "OBSERVACION",
       ],
+      [LISTS.FCT_DOCUMENTOS_HITO]: [
+        "PROYECTO",
+        "HITO",
+      ],
       [LISTS.FCT_HITOS_PAGO_PROY]: [
         "PROYECTO",
-        "COD_PROYECTO",
         "NRO_HITO",
         "MONTO_HITO",
         "MONEDA",
@@ -2988,6 +3131,7 @@ export const controlPagosSchemaService = {
     const proyectosListId = await ensureList(LISTS.PROYECTOS);
     const tiposListId = await ensureList(LISTS.DIM_TIPO_DOCUMENTO_PROY);
     const documentosListId = await ensureList(LISTS.FCT_DOCUMENTOS_PROY);
+    const documentosHitoListId = await ensureList(LISTS.FCT_DOCUMENTOS_HITO);
     const hitosListId = await ensureList(LISTS.FCT_HITOS_PAGO_PROY);
 
     // 2) ExtensiÃ³n de PROYECTOS
@@ -3007,7 +3151,6 @@ export const controlPagosSchemaService = {
     });
 
     // 4) FCT_DOCUMENTOS_PROY
-    await ensureColumn(documentosListId, "COD_PROYECTO", { text: {} });
     await ensureColumn(documentosListId, "FECHA_DOCUMENTO", {
       dateTime: { format: "dateOnly", displayAs: "default" },
     });
@@ -3016,8 +3159,13 @@ export const controlPagosSchemaService = {
     await ensureLookupColumn(documentosListId, "PROYECTO", proyectosListId, "NOM_PROYECTO");
     await ensureLookupColumn(documentosListId, "TIPO_DOCUMENTO", tiposListId, "NOM_TIPO_DOCUMENTO");
 
-    // 5) FCT_HITOS_PAGO_PROY
-    await ensureColumn(hitosListId, "COD_PROYECTO", { text: {} });
+    // 5) FCT_DOCUMENTOS_HITO
+    await ensureColumn(documentosHitoListId, "HITO", {
+      number: { decimalPlaces: "none", displayAs: "number" },
+    });
+    await ensureLookupColumn(documentosHitoListId, "PROYECTO", proyectosListId, "NOM_PROYECTO");
+
+    // 6) FCT_HITOS_PAGO_PROY
     await ensureColumn(hitosListId, "NRO_HITO", {
       number: { decimalPlaces: "none", displayAs: "number" },
     });
@@ -3038,7 +3186,7 @@ export const controlPagosSchemaService = {
     await ensureColumn(hitosListId, "OBSERVACION", { text: { allowMultipleLines: true } });
     await ensureLookupColumn(hitosListId, "PROYECTO", proyectosListId, "NOM_PROYECTO");
 
-    // 6) Seed catÃ¡logo
+    // 7) Seed catÃ¡logo
     await tiposDocumentoProyectoService.seedDefaults();
 
     clearListIdsCache();

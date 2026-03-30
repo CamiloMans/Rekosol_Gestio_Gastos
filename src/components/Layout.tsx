@@ -221,7 +221,7 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
               aria-controls="control-pagos-submenu"
             >
               <Landmark size={20} />
-              <span className="flex-1 text-left">Control de Pagos</span>
+              <span className="flex-1 text-left">Control de Proyectos</span>
               <ChevronDown
                 size={16}
                 className={cn("transition-transform duration-200", controlPagosMenuOpen && "rotate-180")}

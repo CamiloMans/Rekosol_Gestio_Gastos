@@ -20,11 +20,12 @@ interface GastoModalProps {
   onClose: () => void;
   onSave: (gasto: Omit<Gasto, 'id'>) => void;
   gasto?: Gasto;
+  nombreRegistrador?: string;
 }
 
 const tiposDocumentoMock = ['Factura', 'Orden de Compra', 'Boleta', 'Sin Documento', 'Otros'] as const;
 
-export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
+export function GastoModal({ open, onClose, onSave, gasto, nombreRegistrador }: GastoModalProps) {
   const { isAuthenticated } = useSharePointAuth();
   const { proyectos: proyectosSharePoint, createProyecto: createProyectoSharePoint } = useProyectos();
   const { empresas: empresasSharePoint, createEmpresa: createEmpresaSharePoint } = useEmpresas();
@@ -426,6 +427,11 @@ export function GastoModal({ open, onClose, onSave, gasto }: GastoModalProps) {
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
             {gasto ? 'Editar Gasto' : 'Nuevo Gasto'}
+            {nombreRegistrador && (
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                ({nombreRegistrador})
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">

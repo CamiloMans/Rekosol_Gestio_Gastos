@@ -18,6 +18,7 @@ import {
 } from "@/hooks/useSharePoint";
 import type { DocumentoProyecto } from "@/services/sharepointService";
 import { toast } from "@/hooks/use-toast";
+import { formatDateOnly } from "@/lib/date-format";
 import { Eye, FileText, Pencil, Search, Trash2 } from "lucide-react";
 
 interface DocumentoFormState {
@@ -66,6 +67,28 @@ export default function ControlPagosDocumentos() {
     return map;
   }, [proyectos]);
 
+  const projectByCode = useMemo(() => {
+    const map = new Map<string, { nombre: string; id: string }>();
+    proyectos.forEach((item) => {
+      const code = (item.codigoProyecto || "").trim().toUpperCase();
+      if (code) {
+        map.set(code, { nombre: item.nombre, id: String(item.id) });
+      }
+    });
+    return map;
+  }, [proyectos]);
+
+  const resolveProjectName = (item: Pick<DocumentoProyecto, "proyectoId" | "codigoProyecto">) => {
+    const byId = projectById.get(String(item.proyectoId))?.nombre;
+    if (byId) return byId;
+
+    const code = (item.codigoProyecto || item.proyectoId || "").trim().toUpperCase();
+    const byCode = code ? projectByCode.get(code)?.nombre : undefined;
+    if (byCode) return byCode;
+
+    return item.codigoProyecto || "-";
+  };
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return documentosProyecto
@@ -73,16 +96,16 @@ export default function ControlPagosDocumentos() {
         if (projectFilter !== "all" && String(item.proyectoId) !== String(projectFilter)) return false;
         if (!query) return true;
 
-        const projectInfo = projectById.get(String(item.proyectoId));
+        const projectName = resolveProjectName(item);
         return (
           (item.codigoProyecto || "").toLowerCase().includes(query) ||
           (item.nroReferencia || "").toLowerCase().includes(query) ||
           (item.tipoDocumentoNombre || "").toLowerCase().includes(query) ||
-          (projectInfo?.nombre || "").toLowerCase().includes(query)
+          projectName.toLowerCase().includes(query)
         );
       })
       .sort((a, b) => (a.fechaDocumento || "").localeCompare(b.fechaDocumento || "") * -1);
-  }, [documentosProyecto, search, projectFilter, projectById]);
+  }, [documentosProyecto, search, projectFilter, projectById, projectByCode]);
 
   const resetForm = () => {
     setForm(initialForm);
@@ -232,7 +255,7 @@ export default function ControlPagosDocumentos() {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
-              <TableHead>COD_PROYECTO</TableHead>
+              <TableHead>PROYECTO</TableHead>
               <TableHead>TIPO_DOCUMENTO</TableHead>
               <TableHead>FECHA_DOCUMENTO</TableHead>
               <TableHead>NRO_REFERENCIA</TableHead>
@@ -243,9 +266,9 @@ export default function ControlPagosDocumentos() {
           <TableBody>
             {filtered.map((item) => (
               <TableRow key={item.id}>
-                <TableCell className="font-mono">{item.codigoProyecto || "-"}</TableCell>
+                <TableCell>{resolveProjectName(item)}</TableCell>
                 <TableCell>{item.tipoDocumentoNombre || "-"}</TableCell>
-                <TableCell>{item.fechaDocumento || "-"}</TableCell>
+                <TableCell>{formatDateOnly(item.fechaDocumento)}</TableCell>
                 <TableCell>{item.nroReferencia || "-"}</TableCell>
                 <TableCell>
                   {item.archivoAdjunto ? (

@@ -1,5 +1,5 @@
 import { useMsal } from "@azure/msal-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { loginRequest } from "@/lib/msalConfig";
 import type { Gasto, Empresa, Proyecto, Colaborador } from "@/data/mockData";
 import {
@@ -101,6 +101,13 @@ type UseGastosOptions = {
   includeAttachments?: boolean;
 };
 
+type UseGastosPaginadosOptions = {
+  pageSize?: number;
+  includeAttachments?: boolean;
+  filterFn?: (gasto: Gasto) => boolean;
+  filterKey?: string;
+};
+
 // Hook para gestionar gastos desde SharePoint
 export function useGastos(options: UseGastosOptions = {}) {
   const { mode = "recent", includeAttachments = true } = options;
@@ -168,6 +175,266 @@ export function useGastos(options: UseGastosOptions = {}) {
     loading,
     error,
     loadGastos,
+    createGasto,
+    updateGasto,
+    deleteGasto,
+  };
+}
+
+export function useGastosPaginados(options: UseGastosPaginadosOptions = {}) {
+  const {
+    pageSize = 50,
+    includeAttachments = true,
+    filterFn,
+    filterKey = "",
+  } = options;
+  const { isAuthenticated } = useSharePointAuth();
+
+  const [loadedItems, setLoadedItems] = useState<Gasto[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [nextLink, setNextLink] = useState<string | null>(null);
+  const [hasNextPage, setHasNextPage] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const loadedItemsRef = useRef<Gasto[]>([]);
+  const nextLinkRef = useRef<string | null>(null);
+  const hasNextPageRef = useRef(false);
+  const initializedRef = useRef(false);
+  const loadingRef = useRef(false);
+
+  const applyFilter = useCallback(
+    (items: Gasto[]) => {
+      if (!filterFn) return items;
+      return items.filter((item) => {
+        try {
+          return filterFn(item);
+        } catch (filterError) {
+          console.warn("Error al aplicar filtro de gastos paginados:", filterError);
+          return true;
+        }
+      });
+    },
+    [filterFn]
+  );
+
+  const appendLoadedItems = useCallback((items: Gasto[]) => {
+    if (items.length === 0) return;
+
+    const existingIds = new Set(loadedItemsRef.current.map((item) => String(item.id)));
+    const merged = [...loadedItemsRef.current];
+
+    items.forEach((item) => {
+      const itemId = String(item.id);
+      if (!existingIds.has(itemId)) {
+        merged.push(item);
+        existingIds.add(itemId);
+      }
+    });
+
+    loadedItemsRef.current = merged;
+    setLoadedItems(merged);
+  }, []);
+
+  const resetInternalState = useCallback(() => {
+    loadedItemsRef.current = [];
+    nextLinkRef.current = null;
+    hasNextPageRef.current = false;
+    initializedRef.current = false;
+    loadingRef.current = false;
+
+    setLoadedItems([]);
+    setNextLink(null);
+    setHasNextPage(false);
+    setCurrentPage(1);
+  }, []);
+
+  const fetchInitialPage = useCallback(async () => {
+    if (!isAuthenticated) return;
+
+    if (loadingRef.current) return;
+
+    loadingRef.current = true;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await gastosService.getPage({
+        top: pageSize,
+        nextLink: null,
+        includeAttachments,
+      });
+
+      loadedItemsRef.current = response.items;
+      nextLinkRef.current = response.nextLink;
+      hasNextPageRef.current = !!response.nextLink;
+      initializedRef.current = true;
+
+      setLoadedItems(response.items);
+      setNextLink(response.nextLink);
+      setHasNextPage(!!response.nextLink);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al cargar gastos paginados"));
+      console.error("Error al cargar la primera página de gastos:", err);
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, [includeAttachments, isAuthenticated, pageSize]);
+
+  const fetchNextRawPage = useCallback(async () => {
+    if (!isAuthenticated) return false;
+    if (!nextLinkRef.current) return false;
+    if (loadingRef.current) return false;
+
+    loadingRef.current = true;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await gastosService.getPage({
+        top: pageSize,
+        nextLink: nextLinkRef.current,
+        includeAttachments,
+      });
+
+      appendLoadedItems(response.items);
+      nextLinkRef.current = response.nextLink;
+      hasNextPageRef.current = !!response.nextLink;
+      setNextLink(response.nextLink);
+      setHasNextPage(!!response.nextLink);
+
+      return response.items.length > 0 || !!response.nextLink;
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error("Error al cargar siguiente página de gastos"));
+      console.error("Error al cargar siguiente página de gastos:", err);
+      return false;
+    } finally {
+      loadingRef.current = false;
+      setLoading(false);
+    }
+  }, [appendLoadedItems, includeAttachments, isAuthenticated, pageSize]);
+
+  const ensurePageData = useCallback(
+    async (targetPage: number) => {
+      if (!isAuthenticated) return;
+
+      const safeTargetPage = Math.max(1, targetPage);
+      const requiredItems = safeTargetPage * pageSize;
+
+      if (!initializedRef.current) {
+        await fetchInitialPage();
+      }
+
+      let guard = 0;
+      while (applyFilter(loadedItemsRef.current).length < requiredItems && hasNextPageRef.current && guard < 500) {
+        const previousLength = loadedItemsRef.current.length;
+        const progressed = await fetchNextRawPage();
+        guard += 1;
+
+        if (!progressed && loadedItemsRef.current.length === previousLength) {
+          break;
+        }
+      }
+    },
+    [applyFilter, fetchInitialPage, fetchNextRawPage, isAuthenticated, pageSize]
+  );
+
+  const setPage = useCallback(
+    async (targetPage: number) => {
+      const safeTargetPage = Math.max(1, targetPage);
+      await ensurePageData(safeTargetPage);
+
+      const filteredAfterLoad = applyFilter(loadedItemsRef.current);
+      const maxPage = Math.max(1, Math.ceil(filteredAfterLoad.length / pageSize));
+      setCurrentPage(Math.min(safeTargetPage, maxPage));
+    },
+    [applyFilter, ensurePageData, pageSize]
+  );
+
+  const goToNextPage = useCallback(async () => {
+    await setPage(currentPage + 1);
+  }, [currentPage, setPage]);
+
+  const goToPreviousPage = useCallback(async () => {
+    if (currentPage <= 1) return;
+    setCurrentPage((prev) => Math.max(1, prev - 1));
+  }, [currentPage]);
+
+  const refresh = useCallback(async () => {
+    resetInternalState();
+    await ensurePageData(1);
+  }, [ensurePageData, resetInternalState]);
+
+  const createGasto = useCallback(
+    async (gasto: Omit<Gasto, "id">) => {
+      const created = await gastosService.create(gasto);
+      await refresh();
+      return created;
+    },
+    [refresh]
+  );
+
+  const updateGasto = useCallback(
+    async (id: string, gasto: Partial<Gasto>) => {
+      const updated = await gastosService.update(id, gasto);
+      await refresh();
+      return updated;
+    },
+    [refresh]
+  );
+
+  const deleteGasto = useCallback(
+    async (id: string) => {
+      await gastosService.delete(id);
+      await refresh();
+    },
+    [refresh]
+  );
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      resetInternalState();
+      setError(null);
+      return;
+    }
+
+    resetInternalState();
+    void ensurePageData(1);
+  }, [ensurePageData, filterKey, includeAttachments, isAuthenticated, pageSize, resetInternalState]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    void ensurePageData(currentPage);
+  }, [currentPage, ensurePageData, isAuthenticated]);
+
+  const filteredItems = useMemo(() => applyFilter(loadedItems), [applyFilter, loadedItems]);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageEnd = pageStart + pageSize;
+  const pageItems = useMemo(
+    () => filteredItems.slice(pageStart, pageEnd),
+    [filteredItems, pageEnd, pageStart]
+  );
+
+  const hasPreviousPage = currentPage > 1;
+  const hasNextFilteredPage = filteredItems.length > pageEnd || hasNextPage;
+
+  return {
+    loadedItems,
+    filteredItems,
+    pageItems,
+    pageSize,
+    currentPage,
+    nextLink,
+    hasNextPage: hasNextFilteredPage,
+    hasPreviousPage,
+    loading,
+    error,
+    setPage,
+    goToNextPage,
+    goToPreviousPage,
+    ensurePageData,
+    refresh,
     createGasto,
     updateGasto,
     deleteGasto,
@@ -783,7 +1050,8 @@ export function useTiposDocumentoProyecto() {
   };
 }
 
-export function useDocumentosProyecto() {
+export function useDocumentosProyecto(options: { autoLoad?: boolean } = {}) {
+  const { autoLoad = true } = options;
   const { isAuthenticated } = useSharePointAuth();
   const [documentosProyecto, setDocumentosProyecto] = useState<DocumentoProyecto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -815,9 +1083,13 @@ export function useDocumentosProyecto() {
     return created;
   };
 
-  const updateDocumentoProyecto = async (id: string, payload: Partial<DocumentoProyecto>) => {
-    await documentosProyectoService.update(id, payload);
-    setDocumentosProyecto((prev) => prev.map((item) => (item.id === id ? { ...item, ...payload } : item)));
+  const updateDocumentoProyecto = async (
+    id: string,
+    payload: Parameters<typeof documentosProyectoService.update>[1],
+  ) => {
+    const updated = await documentosProyectoService.update(id, payload);
+    setDocumentosProyecto((prev) => prev.map((item) => (item.id === id ? { ...item, ...updated } : item)));
+    return updated;
   };
 
   const deleteDocumentoProyecto = async (id: string) => {
@@ -826,10 +1098,10 @@ export function useDocumentosProyecto() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && autoLoad) {
       loadDocumentosProyecto();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, autoLoad]);
 
   return {
     documentosProyecto,

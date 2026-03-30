@@ -70,13 +70,12 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="codigoProyecto">Código de Proyecto *</Label>
+            <Label htmlFor="codigoProyecto">Código de Proyecto</Label>
             <Input
               id="codigoProyecto"
               placeholder="Ej: PRJ-001"
               value={codigoProyecto}
               onChange={(e) => setCodigoProyecto(e.target.value.toUpperCase())}
-              required
             />
           </div>
 
@@ -122,6 +121,8 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
     </Dialog>
   );
 }
+
+
 
 
 

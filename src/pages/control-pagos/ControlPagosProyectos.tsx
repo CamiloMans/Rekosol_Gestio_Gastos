@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { PageHeader } from "@/components/PageHeader";
 import { SchemaInitializer } from "@/components/control-pagos/SchemaInitializer";
+import { ProyectoDocumentosModal } from "@/components/control-pagos/ProyectoDocumentosModal";
 import { ProyectoModal } from "@/components/ProyectoModal";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useProyectos, useSharePointAuth } from "@/hooks/useSharePoint";
 import type { Proyecto } from "@/data/mockData";
 import { toast } from "@/hooks/use-toast";
-import { Pencil, Search, Trash2 } from "lucide-react";
+import { Eye, Pencil, Plus, Search, Trash2 } from "lucide-react";
 
 function formatAmount(value?: number, moneda: "CLP" | "UF" | "USD" = "CLP") {
   if (value === undefined || value === null || Number.isNaN(Number(value))) return "-";
@@ -34,7 +35,10 @@ export default function ControlPagosProyectos() {
   const [search, setSearch] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProyecto, setEditingProyecto] = useState<Proyecto | undefined>();
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; nombre: string } | null>(null);
+  const [documentosModalOpen, setDocumentosModalOpen] = useState(false);
+  const [documentosProyectoSeleccionado, setDocumentosProyectoSeleccionado] = useState<Proyecto | undefined>();
+  const [documentosModalMode, setDocumentosModalMode] = useState<"view" | "create">("view");
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -53,14 +57,14 @@ export default function ControlPagosProyectos() {
         await updateProyecto(editingProyecto.id, payload);
         toast({
           title: "Proyecto actualizado",
-          description: "Se actualizó correctamente.",
+          description: "Se actualizÃ³ correctamente.",
           variant: "success",
         });
       } else {
         await createProyecto(payload);
         toast({
           title: "Proyecto creado",
-          description: "Se creó correctamente.",
+          description: "Se creÃ³ correctamente.",
           variant: "success",
         });
       }
@@ -76,12 +80,12 @@ export default function ControlPagosProyectos() {
   };
 
   const confirmDelete = async () => {
-    if (!deleteId) return;
+    if (!deleteTarget?.id) return;
     try {
-      await deleteProyecto(deleteId);
+      await deleteProyecto(deleteTarget.id);
       toast({
         title: "Proyecto eliminado",
-        description: "Se eliminó correctamente.",
+        description: "Se eliminÃ³ correctamente.",
         variant: "success",
       });
     } catch (error) {
@@ -91,8 +95,23 @@ export default function ControlPagosProyectos() {
         variant: "destructive",
       });
     } finally {
-      setDeleteId(null);
+      setDeleteTarget(null);
     }
+  };
+
+  const openDocumentosModal = (proyecto: Proyecto, mode: "view" | "create") => {
+    if (mode === "create" && !proyecto.codigoProyecto) {
+      toast({
+        title: "Proyecto invalido",
+        description: "Debes asignar COD_PROYECTO antes de agregar documentos.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setDocumentosProyectoSeleccionado(proyecto);
+    setDocumentosModalMode(mode);
+    setDocumentosModalOpen(true);
   };
 
   return (
@@ -118,7 +137,7 @@ export default function ControlPagosProyectos() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
-            placeholder="Buscar por código o nombre de proyecto..."
+            placeholder="Buscar por cÃ³digo o nombre de proyecto..."
           />
         </div>
       </div>
@@ -131,6 +150,7 @@ export default function ControlPagosProyectos() {
               <TableHead>PROYECTO</TableHead>
               <TableHead>MONTO_TOTAL_PROY</TableHead>
               <TableHead>MONEDA_BASE</TableHead>
+              <TableHead className="text-center">DOCUMENTOS</TableHead>
               <TableHead className="text-center">ACCIONES</TableHead>
             </TableRow>
           </TableHeader>
@@ -141,6 +161,16 @@ export default function ControlPagosProyectos() {
                 <TableCell>{item.nombre}</TableCell>
                 <TableCell>{formatAmount(item.montoTotalProyecto, item.monedaBase || "CLP")}</TableCell>
                 <TableCell>{item.monedaBase || "-"}</TableCell>
+                <TableCell>
+                  <div className="flex justify-center gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => openDocumentosModal(item, "view")}>
+                      <Eye size={16} />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => openDocumentosModal(item, "create")}>
+                      <Plus size={16} />
+                    </Button>
+                  </div>
+                </TableCell>
                 <TableCell>
                   <div className="flex justify-center gap-1">
                     <Button
@@ -156,7 +186,7 @@ export default function ControlPagosProyectos() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => setDeleteId(item.id)}
+                      onClick={() => setDeleteTarget({ id: item.id, nombre: item.nombre })}
                       disabled={!isAuthenticated}
                     >
                       <Trash2 size={16} className="text-destructive" />
@@ -167,7 +197,7 @@ export default function ControlPagosProyectos() {
             ))}
             {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                   No hay proyectos para mostrar.
                 </TableCell>
               </TableRow>
@@ -186,13 +216,26 @@ export default function ControlPagosProyectos() {
         proyecto={editingProyecto}
       />
 
-      <ConfirmDialog
-        open={Boolean(deleteId)}
+      <ProyectoDocumentosModal
+        open={documentosModalOpen}
         onOpenChange={(open) => {
-          if (!open) setDeleteId(null);
+          setDocumentosModalOpen(open);
+          if (!open) {
+            setDocumentosProyectoSeleccionado(undefined);
+            setDocumentosModalMode("view");
+          }
+        }}
+        proyecto={documentosProyectoSeleccionado}
+        initialMode={documentosModalMode}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
         }}
         title="Eliminar proyecto"
-        description="¿Seguro que deseas eliminar este proyecto? Esta acción no se puede deshacer."
+        description={`Â¿Seguro que deseas eliminar "${deleteTarget?.nombre || "este proyecto"}"? Esta acciÃ³n no se puede deshacer.`}
         onConfirm={confirmDelete}
         confirmText="Eliminar"
         cancelText="Cancelar"
@@ -200,3 +243,4 @@ export default function ControlPagosProyectos() {
     </Layout>
   );
 }
+

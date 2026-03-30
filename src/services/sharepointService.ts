@@ -1,4 +1,4 @@
-import {
+﻿import {
   getGraphClient,
   getGraphClientWithScopes,
   getSiteId,
@@ -29,6 +29,21 @@ const LISTS = {
 const DOCUMENT_LIBRARY = "DocumentosGastos";
 const GASTOS_FETCH_LIMIT = 100;
 type GastosFetchMode = "recent" | "all";
+const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
+const GASTOS_LOCAL_PAGE_PREFIX = "local://gastos/";
+
+type PaginatedGastosResponse = {
+  items: Gasto[];
+  nextLink: string | null;
+};
+
+type SharePointListItem = {
+  id: string;
+  fields: Record<string, any>;
+  attachments?: Array<{ nombre: string; url: string; tipo: string }>;
+};
+
+let gastosLocalPaginationCache: SharePointListItem[] | null = null;
 const CONTROL_PAGOS_SCHEMA_SCOPES = [
   "https://graph.microsoft.com/Sites.Manage.All",
   "https://graph.microsoft.com/Sites.ReadWrite.All",
@@ -53,10 +68,10 @@ async function getCachedSiteId(): Promise<string> {
 }
 
 /**
- * Obtiene el ID de una lista por su nombre (con caché para mejor rendimiento)
+ * Obtiene el ID de una lista por su nombre (con cachÃ© para mejor rendimiento)
  */
 async function getListId(listName: string): Promise<string> {
-  // Intentar obtener del caché primero
+  // Intentar obtener del cachÃ© primero
   try {
     const cachedListIds = sessionStorage.getItem(LIST_IDS_CACHE_KEY);
     if (cachedListIds) {
@@ -66,8 +81,8 @@ async function getListId(listName: string): Promise<string> {
       }
     }
   } catch (e) {
-    // Si hay error al parsear el caché, continuar con la búsqueda
-    console.warn("Error al leer caché de list IDs:", e);
+    // Si hay error al parsear el cachÃ©, continuar con la bÃºsqueda
+    console.warn("Error al leer cachÃ© de list IDs:", e);
   }
   
   const client = await getGraphClient();
@@ -89,11 +104,11 @@ async function getListId(listName: string): Promise<string> {
       });
     }
     
-    // Guardar en caché
+    // Guardar en cachÃ©
     try {
       sessionStorage.setItem(LIST_IDS_CACHE_KEY, JSON.stringify(listIdsMap));
     } catch (e) {
-      console.warn("Error al guardar caché de list IDs:", e);
+      console.warn("Error al guardar cachÃ© de list IDs:", e);
     }
     
     // Buscar la lista solicitada
@@ -112,7 +127,7 @@ function clearListIdsCache(): void {
   try {
     sessionStorage.removeItem(LIST_IDS_CACHE_KEY);
   } catch (e) {
-    console.warn("Error al limpiar caché de listas:", e);
+    console.warn("Error al limpiar cachÃ© de listas:", e);
   }
 }
 
@@ -234,7 +249,7 @@ async function ensureLookupColumn(
       .api(`/sites/${siteId}/lists/${listId}/columns`)
       .post(payload);
   } catch (error) {
-    // fallback típico cuando la columna objetivo no coincide en todos los tenants
+    // fallback tÃ­pico cuando la columna objetivo no coincide en todos los tenants
     if (targetColumnName.toUpperCase() !== "TITLE") {
       await client
         .api(`/sites/${siteId}/lists/${listId}/columns`)
@@ -259,7 +274,7 @@ async function ensureLookupColumn(
 function getUserEmail(): string | null {
   try {
     const account = msalInstance.getActiveAccount();
-    console.log("📧 Account completo:", account);
+    console.log("[INFO]¿½ Account completo:", account);
     
     if (account) {
       // Intentar diferentes propiedades donde puede estar el email
@@ -269,15 +284,15 @@ function getUserEmail(): string | null {
                    account.name;
       
       if (email) {
-        console.log(`✅ Email del usuario encontrado: ${email}`);
-        console.log(`📧 Account.username: ${account.username}`);
-        console.log(`📧 Account.name: ${account.name}`);
-        console.log(`📧 Account.mail: ${(account as any).mail}`);
+        console.log(`ï¿½o. Email del usuario encontrado: ${email}`);
+        console.log(`[INFO]¿½ Account.username: ${account.username}`);
+        console.log(`[INFO]¿½ Account.name: ${account.name}`);
+        console.log(`[INFO]¿½ Account.mail: ${(account as any).mail}`);
         return email;
       }
     }
     
-    console.warn("⚠️ No se pudo obtener el email del usuario. Account:", account);
+    console.warn("ï¿½sï¿½ï¸ No se pudo obtener el email del usuario. Account:", account);
     return null;
   } catch (error) {
     console.error("Error al obtener email del usuario:", error);
@@ -294,16 +309,16 @@ async function findColaboradorByEmail(email: string): Promise<string | null> {
     const siteId = await getCachedSiteId();
     const listId = await getListId(LISTS.COLABORADORES);
     
-    console.log(`🔍 Buscando colaborador con email: ${email}`);
-    console.log(`📋 List ID de COLABORADORES: ${listId}`);
+    console.log(`[INFO]¿½ Buscando colaborador con email: ${email}`);
+    console.log(`[INFO] List ID de COLABORADORES: ${listId}`);
     
-    // Obtener todos los colaboradores y filtrar en memoria (más confiable que el filtro de Graph API)
+    // Obtener todos los colaboradores y filtrar en memoria (mÃ¡s confiable que el filtro de Graph API)
     const response = await client
       .api(`/sites/${siteId}/lists/${listId}/items`)
       .expand("fields")
       .get();
     
-    console.log(`📋 Total de colaboradores encontrados: ${response.value?.length || 0}`);
+    console.log(`[INFO] Total de colaboradores encontrados: ${response.value?.length || 0}`);
     
     if (response.value && response.value.length > 0) {
       // Mostrar todos los colaboradores para debugging
@@ -313,7 +328,7 @@ async function findColaboradorByEmail(email: string): Promise<string | null> {
         console.log(`  Colaborador ${index + 1}: ID=${item.id}, Nombre=${nombre}, Correo=${correo}`);
       });
       
-      // Buscar por email (comparar en minúsculas para evitar problemas de mayúsculas/minúsculas)
+      // Buscar por email (comparar en minÃºsculas para evitar problemas de mayÃºsculas/minÃºsculas)
       const emailLower = email.toLowerCase().trim();
       const colaborador = response.value.find((item: any) => {
         const correo = (item.fields?.CORREO || item.fields?.Correo || item.fields?.Email || item.fields?.correo || '').toLowerCase().trim();
@@ -323,13 +338,13 @@ async function findColaboradorByEmail(email: string): Promise<string | null> {
       if (colaborador) {
         const colaboradorId = colaborador.id;
         const nombre = colaborador.fields?.NOMBRE || colaborador.fields?.Nombre || colaborador.fields?.Title || 'N/A';
-        console.log(`✅ Colaborador encontrado por email ${email}: ID ${colaboradorId}, Nombre: ${nombre}`);
+        console.log(`ï¿½o. Colaborador encontrado por email ${email}: ID ${colaboradorId}, Nombre: ${nombre}`);
         return colaboradorId;
       }
     }
     
-    console.warn(`⚠️ No se encontró colaborador con email: ${email}`);
-    console.warn(`⚠️ Emails disponibles en la lista:`);
+    console.warn(`ï¿½sï¿½ï¸ No se encontrÃ³ colaborador con email: ${email}`);
+    console.warn(`ï¿½sï¿½ï¸ Emails disponibles en la lista:`);
     if (response.value) {
       response.value.forEach((item: any) => {
         const correo = item.fields?.CORREO || item.fields?.Correo || item.fields?.Email || item.fields?.correo || 'N/A';
@@ -338,16 +353,16 @@ async function findColaboradorByEmail(email: string): Promise<string | null> {
     }
     return null;
   } catch (error) {
-    console.error("❌ Error al buscar colaborador por email:", error);
+    console.error("ï¿½O Error al buscar colaborador por email:", error);
     if (error instanceof Error) {
-      console.error("❌ Mensaje de error:", error.message);
+      console.error("ï¿½O Mensaje de error:", error.message);
     }
     return null;
   }
 }
 
 /**
- * Obtiene el nombre interno de una columna por su nombre de visualización
+ * Obtiene el nombre interno de una columna por su nombre de visualizaciÃ³n
  */
 async function getColumnInternalName(listId: string, displayName: string): Promise<string> {
   const client = await getGraphClient();
@@ -358,7 +373,7 @@ async function getColumnInternalName(listId: string, displayName: string): Promi
       .api(`/sites/${siteId}/lists/${listId}/columns`)
       .get();
     
-    // Buscar la columna por nombre de visualización
+    // Buscar la columna por nombre de visualizaciÃ³n
     const column = columns.value.find((col: any) => 
       col.displayName === displayName || 
       col.name === displayName ||
@@ -367,7 +382,7 @@ async function getColumnInternalName(listId: string, displayName: string): Promi
     );
     
     if (column) {
-      console.log(`📋 Columna encontrada:`, {
+      console.log(`[INFO] Columna encontrada:`, {
         displayName: column.displayName,
         name: column.name,
         type: column.text ? 'text' : column.lookup ? 'lookup' : column.type,
@@ -386,8 +401,8 @@ async function getColumnInternalName(listId: string, displayName: string): Promi
     }
     
     // Si no se encuentra, devolver el nombre original
-    console.warn(`⚠️ Columna "${displayName}" no encontrada, usando nombre original`);
-    console.warn(`⚠️ Columnas disponibles:`, columns.value.map((c: any) => ({ displayName: c.displayName, name: c.name })));
+    console.warn(`ï¿½sï¿½ï¸ Columna "${displayName}" no encontrada, usando nombre original`);
+    console.warn(`ï¿½sï¿½ï¸ Columnas disponibles:`, columns.value.map((c: any) => ({ displayName: c.displayName, name: c.name })));
     return displayName;
   } catch (error) {
     console.error(`Error al obtener nombre interno de columna "${displayName}":`, error);
@@ -395,10 +410,239 @@ async function getColumnInternalName(listId: string, displayName: string): Promi
   }
 }
 
+function parseFecha(fecha: unknown): number {
+  if (!fecha) return 0;
+  const parsed = new Date(String(fecha)).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function normalizeNextLink(nextLink: string): string {
+  return nextLink.startsWith(GRAPH_BASE_URL)
+    ? nextLink.slice(GRAPH_BASE_URL.length)
+    : nextLink;
+}
+
+function isNonIndexedFechaError(error: unknown): boolean {
+  const orderByMessage = error instanceof Error ? error.message : String(error);
+  return (
+    orderByMessage.includes("cannot be referenced in filter or orderby") &&
+    orderByMessage.toUpperCase().includes("FECHA")
+  );
+}
+
+function sortGastosItemsByFechaDesc(items: SharePointListItem[]): SharePointListItem[] {
+  return [...items].sort((a, b) => {
+    const fechaA = a.fields?.FECHA || a.fields?.Fecha || a.fields?.fecha;
+    const fechaB = b.fields?.FECHA || b.fields?.Fecha || b.fields?.fecha;
+    return parseFecha(fechaB) - parseFecha(fechaA);
+  });
+}
+
+function buildLocalPageToken(offset: number): string {
+  return `${GASTOS_LOCAL_PAGE_PREFIX}${offset}`;
+}
+
+function parseLocalPageToken(nextLink: string): number | null {
+  if (!nextLink.startsWith(GASTOS_LOCAL_PAGE_PREFIX)) return null;
+  const rawOffset = nextLink.slice(GASTOS_LOCAL_PAGE_PREFIX.length);
+  const offset = Number(rawOffset);
+  if (!Number.isInteger(offset) || offset < 0) return null;
+  return offset;
+}
+
+async function getAllGastosItemsWithoutServerOrdering(
+  client: any,
+  siteId: string,
+  listId: string
+): Promise<SharePointListItem[]> {
+  const allItems: SharePointListItem[] = [];
+  let page = await client
+    .api(`/sites/${siteId}/lists/${listId}/items`)
+    .expand("fields")
+    .top(500)
+    .get();
+
+  if (page.value?.length) {
+    allItems.push(...page.value);
+  }
+
+  let nextLink = page["@odata.nextLink"] as string | undefined;
+  while (nextLink) {
+    page = await client
+      .api(normalizeNextLink(nextLink))
+      .get();
+
+    if (page.value?.length) {
+      allItems.push(...page.value);
+    }
+
+    nextLink = page["@odata.nextLink"] as string | undefined;
+  }
+
+  return allItems;
+}
+
+async function loadAttachmentsForGastosItems(
+  items: SharePointListItem[],
+  includeAttachments: boolean
+): Promise<SharePointListItem[]> {
+  if (!includeAttachments || items.length === 0) {
+    return items;
+  }
+
+  const siteUrl = getSharePointSiteUrl();
+  const token = await getSharePointRestToken();
+
+  return Promise.all(
+    items.map(async (item) => {
+      let attachments: Array<{ nombre: string; url: string; tipo: string }> = [];
+
+      if (item.fields?.Attachments === true) {
+        try {
+          const listName = LISTS.GASTOS;
+          const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${item.id})/AttachmentFiles`;
+          const attachmentsResponse = await fetch(restApiUrl, {
+            method: "GET",
+            headers: {
+              Accept: "application/json;odata=verbose",
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (attachmentsResponse.ok) {
+            const data = await attachmentsResponse.json();
+            if (data.d && data.d.results && data.d.results.length > 0) {
+              attachments = data.d.results.map((att: any) => {
+                const escapedUrl = att.ServerRelativeUrl.replace(/'/g, "''");
+                const downloadUrl = `${siteUrl}/_api/web/GetFileByServerRelativeUrl('${escapedUrl}')/$value`;
+
+                return {
+                  nombre: att.FileName,
+                  url: downloadUrl,
+                  tipo: att.ContentType || "application/octet-stream",
+                };
+              });
+            }
+          }
+        } catch (attachmentsError) {
+          console.warn(`ï¿½sï¿½ï¸ No se pudieron obtener attachments para item ${item.id}:`, attachmentsError);
+        }
+      }
+
+      return {
+        ...item,
+        attachments,
+      };
+    })
+  );
+}
+
+function mapSharePointGastoItem(item: SharePointListItem): Gasto {
+  let categoriaId = "";
+  const categoriaLookupId = item.fields.CATEGORIALookupId ||
+    item.fields.CATEGORIA_x003a__x0020_IDLookupId ||
+    item.fields.CATEGORIA;
+  if (categoriaLookupId) {
+    if (typeof categoriaLookupId === "object" && categoriaLookupId.LookupId) {
+      categoriaId = String(categoriaLookupId.LookupId);
+    } else {
+      categoriaId = String(categoriaLookupId);
+    }
+  }
+
+  let empresaId = "";
+  const empresaLookupId = item.fields.EMPRESALookupId ||
+    item.fields.EMPRESA_x003a__x0020_IDLookupId ||
+    item.fields.EMPRESA;
+  if (empresaLookupId) {
+    empresaId = String(empresaLookupId);
+  }
+
+  let tipoDocumentoId = "";
+  const tipoDocumentoLookupId = item.fields.TIPO_DOCUMENTOLookupId ||
+    item.fields.TIPO_DOCUMENTO_x003a__x0020_IDLookupId ||
+    item.fields.TIPO_DOCUMENTO;
+  if (tipoDocumentoLookupId) {
+    tipoDocumentoId = String(tipoDocumentoLookupId);
+  }
+
+  let proyectoId = "";
+  const proyectoLookupId = item.fields.PROYECTOLookupId ||
+    item.fields.PROYECTO_x003a__x0020_IDLookupId ||
+    item.fields.PROYECTO;
+  if (proyectoLookupId) {
+    proyectoId = String(proyectoLookupId);
+  }
+
+  let colaboradorId = "";
+  let colaboradorNombre = "";
+  const personaLookupRaw = item.fields.PERSONA;
+  const personaLookupId = item.fields.PERSONALookupId || item.fields.PERSONA_x003a__x0020_IDLookupId;
+
+  if (personaLookupRaw) {
+    if (typeof personaLookupRaw === "object") {
+      const lookupId = (personaLookupRaw as any).LookupId;
+      const lookupValue = (personaLookupRaw as any).LookupValue;
+      const displayValue = (personaLookupRaw as any).Value;
+
+      if (lookupId) {
+        colaboradorId = String(lookupId);
+      }
+      if (typeof lookupValue === "string" && lookupValue.trim() !== "") {
+        colaboradorNombre = lookupValue.trim();
+      } else if (typeof displayValue === "string" && displayValue.trim() !== "") {
+        colaboradorNombre = displayValue.trim();
+      }
+    } else if (typeof personaLookupRaw === "number") {
+      colaboradorId = String(personaLookupRaw);
+    } else if (typeof personaLookupRaw === "string") {
+      const valorPersona = personaLookupRaw.trim();
+      if (valorPersona !== "") {
+        if (/^\d+$/.test(valorPersona)) {
+          colaboradorId = valorPersona;
+        } else {
+          colaboradorNombre = valorPersona;
+        }
+      }
+    }
+  }
+
+  if (!colaboradorId && personaLookupId) {
+    colaboradorId = String(personaLookupId);
+  }
+
+  const baseGasto: Gasto = {
+    id: item.id,
+    fecha: item.fields.FECHA || item.fields.Fecha || item.fields.fecha || "",
+    empresaId,
+    categoria: categoriaId,
+    tipoDocumento: tipoDocumentoId || "Factura",
+    numeroDocumento: item.fields.NUMERO_DOCUMENTO || item.fields.NumeroDocumento || item.fields.numeroDocumento || "",
+    montoTotal: item.fields.MONTO_TOTAL || item.fields.MontoTotal || item.fields.montoTotal || item.fields.MONTO || item.fields.Monto || item.fields.monto || 0,
+    monto: item.fields.MONTO_TOTAL || item.fields.MontoTotal || item.fields.montoTotal || item.fields.MONTO || item.fields.Monto || item.fields.monto || 0,
+    montoNeto: item.fields.MONTO_NETO || item.fields.MontoNeto || item.fields.montoNeto || undefined,
+    iva: item.fields.IVA || item.fields.Iva || item.fields.iva || undefined,
+    detalle: item.fields.DETALLE || item.fields.Detalle || item.fields.detalle || "",
+    proyectoId: proyectoId || undefined,
+    colaboradorId: colaboradorId || undefined,
+    comentarioTipoDocumento: item.fields.OTRO || item.fields.Otro || item.fields.otro || undefined,
+    archivosAdjuntos: item.attachments && item.attachments.length > 0 ? item.attachments : undefined,
+  };
+
+  if (colaboradorNombre) {
+    return {
+      ...baseGasto,
+      colaboradorNombre,
+    } as Gasto;
+  }
+
+  return baseGasto;
+}
+
 // ========== SERVICIOS PARA GASTOS ==========
 
 export const gastosService = {
-  // Función temporal para revisar un item específico con attachments
+  // FunciÃ³n temporal para revisar un item especÃ­fico con attachments
   async checkItemWithAttachments(id: string): Promise<void> {
     const client = await getGraphClient();
     const siteId = await getCachedSiteId();
@@ -411,24 +655,24 @@ export const gastosService = {
         .expand("fields")
         .get();
       
-      console.log("📋 Item completo:", JSON.stringify(item, null, 2));
+      console.log("[INFO] Item completo:", JSON.stringify(item, null, 2));
       
       // Para SharePoint lists, los attachments se acceden usando SharePoint REST API directamente
       // No se puede usar Microsoft Graph API para attachments en list items
-      console.log("📎 Campo Attachments en fields:", item.fields?.Attachments);
-      console.log("📎 webUrl del item:", item.webUrl);
+      console.log("[INFO] Campo Attachments en fields:", item.fields?.Attachments);
+      console.log("[INFO] webUrl del item:", item.webUrl);
       
       // Usar SharePoint REST API directamente para obtener attachments
-      // Necesitamos un token específico para SharePoint REST API (no el de Microsoft Graph)
+      // Necesitamos un token especÃ­fico para SharePoint REST API (no el de Microsoft Graph)
       
       // Construir la URL de SharePoint REST API usando el nombre de la lista
       // IMPORTANTE: Usar la URL completa del sitio (incluyendo el path), no solo el origin
       const siteUrl = getSharePointSiteUrl();
-      const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
+      const token = await getSharePointRestToken(); // Token especÃ­fico para SharePoint REST API
       const listName = LISTS.GASTOS; // Usar el nombre de la lista
       const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${id})/AttachmentFiles`;
       
-      console.log("📎 Intentando obtener attachments desde SharePoint REST API:", restApiUrl);
+      console.log("[INFO] Intentando obtener attachments desde SharePoint REST API:", restApiUrl);
       
       try {
         const response = await fetch(restApiUrl, {
@@ -441,13 +685,13 @@ export const gastosService = {
         
         if (response.ok) {
           const data = await response.json();
-          console.log("📎 Attachments desde SharePoint REST API:", JSON.stringify(data, null, 2));
+          console.log("[INFO] Attachments desde SharePoint REST API:", JSON.stringify(data, null, 2));
           
           if (data.d && data.d.results && data.d.results.length > 0) {
-            console.log("📎 Número de attachments encontrados:", data.d.results.length);
+            console.log("[INFO] NÃºmero de attachments encontrados:", data.d.results.length);
             
             data.d.results.forEach((att: any, index: number) => {
-              console.log(`📎 Attachment ${index + 1}:`, {
+              console.log(`[INFO] Attachment ${index + 1}:`, {
                 FileName: att.FileName,
                 ServerRelativeUrl: att.ServerRelativeUrl,
                 // Construir URL completa
@@ -458,14 +702,14 @@ export const gastosService = {
               });
             });
           } else {
-            console.log("📎 No se encontraron attachments en la respuesta");
+            console.log("[INFO] No se encontraron attachments en la respuesta");
           }
         } else {
           const errorText = await response.text();
-          console.error("❌ Error al obtener attachments:", response.status, errorText);
+          console.error("ï¿½O Error al obtener attachments:", response.status, errorText);
         }
       } catch (restError: any) {
-        console.error("❌ Error al usar SharePoint REST API:", restError);
+        console.error("ï¿½O Error al usar SharePoint REST API:", restError);
       }
     } catch (error) {
       console.error("Error al revisar item con attachments:", error);
@@ -473,7 +717,7 @@ export const gastosService = {
     }
   },
 
-  // Función temporal para revisar las columnas lookup
+  // FunciÃ³n temporal para revisar las columnas lookup
   async checkLookupColumns(): Promise<void> {
     const client = await getGraphClient();
     const siteId = await getCachedSiteId();
@@ -485,10 +729,10 @@ export const gastosService = {
         .api(`/sites/${siteId}/lists/${listId}/columns`)
         .get();
       
-      console.log("📋 Todas las columnas de la lista:");
+      console.log("[INFO] Todas las columnas de la lista:");
       columns.value.forEach((col: any) => {
         if (col.lookup) {
-          console.log(`🔍 Columna lookup encontrada:`, {
+          console.log(`[INFO]¿½ Columna lookup encontrada:`, {
             displayName: col.displayName,
             name: col.name,
             lookup: {
@@ -509,8 +753,8 @@ export const gastosService = {
       
       if (items.value && items.value.length > 0) {
         const item = items.value[0];
-        console.log("📋 Item de ejemplo:", item.id);
-        console.log("📋 Todos los campos del item:", Object.keys(item.fields || {}));
+        console.log("[INFO] Item de ejemplo:", item.id);
+        console.log("[INFO] Todos los campos del item:", Object.keys(item.fields || {}));
         
         // Buscar campos que contengan "EMPRESA", "PROYECTO", "TIPO_DOCUMENTO"
         const camposRelevantes = Object.keys(item.fields || {}).filter(k => 
@@ -522,7 +766,7 @@ export const gastosService = {
           k.includes('Proyecto')
         );
         
-        console.log("📋 Campos relevantes encontrados:");
+        console.log("[INFO] Campos relevantes encontrados:");
         camposRelevantes.forEach(campo => {
           console.log(`  - ${campo}:`, item.fields[campo], `(tipo: ${typeof item.fields[campo]})`);
         });
@@ -533,58 +777,96 @@ export const gastosService = {
     }
   },
 
+  async getPage(options: { top?: number; nextLink?: string | null; includeAttachments?: boolean } = {}): Promise<PaginatedGastosResponse> {
+    const { top = 50, nextLink = null, includeAttachments = true } = options;
+    const client = await getGraphClient();
+    const siteId = await getCachedSiteId();
+    const listId = await getListId(LISTS.GASTOS);
+
+    const pageSize = Math.max(1, Math.floor(top));
+
+    try {
+      const localOffset = nextLink ? parseLocalPageToken(nextLink) : null;
+      if (localOffset !== null) {
+        const localCache = gastosLocalPaginationCache || [];
+        const pagedItems = localCache.slice(localOffset, localOffset + pageSize);
+        const withAttachments = await loadAttachmentsForGastosItems(pagedItems, includeAttachments);
+        const nextOffset = localOffset + pageSize;
+
+        return {
+          items: withAttachments.map(mapSharePointGastoItem),
+          nextLink: nextOffset < localCache.length ? buildLocalPageToken(nextOffset) : null,
+        };
+      }
+
+      if (nextLink) {
+        const response = await client
+          .api(normalizeNextLink(nextLink))
+          .header("Prefer", "HonorNonIndexedQueriesWarningMayFailRandomly")
+          .get();
+
+        const rawItems: SharePointListItem[] = response.value || [];
+        const withAttachments = await loadAttachmentsForGastosItems(rawItems, includeAttachments);
+
+        return {
+          items: withAttachments.map(mapSharePointGastoItem),
+          nextLink: (response["@odata.nextLink"] as string | undefined) || null,
+        };
+      }
+
+      try {
+        const response = await client
+          .api(`/sites/${siteId}/lists/${listId}/items`)
+          .expand("fields")
+          .orderby("fields/FECHA desc")
+          .top(pageSize)
+          .header("Prefer", "HonorNonIndexedQueriesWarningMayFailRandomly")
+          .get();
+
+        gastosLocalPaginationCache = null;
+        const rawItems: SharePointListItem[] = response.value || [];
+        const withAttachments = await loadAttachmentsForGastosItems(rawItems, includeAttachments);
+
+        return {
+          items: withAttachments.map(mapSharePointGastoItem),
+          nextLink: (response["@odata.nextLink"] as string | undefined) || null,
+        };
+      } catch (orderByError) {
+        if (!isNonIndexedFechaError(orderByError)) {
+          throw orderByError;
+        }
+
+        console.warn("WARNING: FECHA no esta indexada en SharePoint. Aplicando fallback con paginacion local.");
+        const allItems = await getAllGastosItemsWithoutServerOrdering(client, siteId, listId);
+        const sortedItems = sortGastosItemsByFechaDesc(allItems);
+        gastosLocalPaginationCache = sortedItems;
+
+        const firstPageItems = sortedItems.slice(0, pageSize);
+        const withAttachments = await loadAttachmentsForGastosItems(firstPageItems, includeAttachments);
+
+        return {
+          items: withAttachments.map(mapSharePointGastoItem),
+          nextLink: pageSize < sortedItems.length ? buildLocalPageToken(pageSize) : null,
+        };
+      }
+    } catch (error) {
+      console.error("Error al obtener pï¿½gina de gastos:", error);
+      throw error;
+    }
+  },
+
   async getAll(options: { mode?: GastosFetchMode; includeAttachments?: boolean } = {}): Promise<Gasto[]> {
     const { mode = "recent", includeAttachments = true } = options;
     const client = await getGraphClient();
     const siteId = await getCachedSiteId();
     const listId = await getListId(LISTS.GASTOS);
-    
+
     try {
-      const parseFecha = (fecha: unknown): number => {
-        if (!fecha) return 0;
-        const parsed = new Date(String(fecha)).getTime();
-        return Number.isNaN(parsed) ? 0 : parsed;
-      };
-
-      const normalizeNextLink = (nextLink: string): string => {
-        const graphBaseUrl = "https://graph.microsoft.com/v1.0";
-        return nextLink.startsWith(graphBaseUrl)
-          ? nextLink.slice(graphBaseUrl.length)
-          : nextLink;
-      };
-
-      const getAllItemsWithoutServerOrdering = async (): Promise<any[]> => {
-        const allItems: any[] = [];
-        let page = await client
-          .api(`/sites/${siteId}/lists/${listId}/items`)
-          .expand("fields")
-          .top(500)
-          .get();
-
-        if (page.value?.length) {
-          allItems.push(...page.value);
-        }
-
-        let nextLink = page["@odata.nextLink"] as string | undefined;
-        while (nextLink) {
-          page = await client
-            .api(normalizeNextLink(nextLink))
-            .get();
-
-          if (page.value?.length) {
-            allItems.push(...page.value);
-          }
-
-          nextLink = page["@odata.nextLink"] as string | undefined;
-        }
-
-        return allItems;
-      };
-
-      let gastosItems: any[] = [];
+      let gastosItems: SharePointListItem[] = [];
 
       if (mode === "all") {
-        gastosItems = await getAllItemsWithoutServerOrdering();
+        const allItems = await getAllGastosItemsWithoutServerOrdering(client, siteId, listId);
+        gastosItems = sortGastosItemsByFechaDesc(allItems);
       } else {
         try {
           const response = await client
@@ -597,169 +879,23 @@ export const gastosService = {
 
           gastosItems = response.value || [];
         } catch (orderByError) {
-          const orderByMessage = orderByError instanceof Error ? orderByError.message : String(orderByError);
-          const isNonIndexedFechaError =
-            orderByMessage.includes("cannot be referenced in filter or orderby") &&
-            orderByMessage.toUpperCase().includes("FECHA");
-
-          if (!isNonIndexedFechaError) {
+          if (!isNonIndexedFechaError(orderByError)) {
             throw orderByError;
           }
 
-          console.warn("⚠️ FECHA no está indexada en SharePoint. Aplicando fallback con paginación local.");
-          gastosItems = await getAllItemsWithoutServerOrdering();
+          console.warn("WARNING: FECHA no esta indexada en SharePoint. Aplicando fallback con paginacion local.");
+          const allItems = await getAllGastosItemsWithoutServerOrdering(client, siteId, listId);
+          gastosItems = sortGastosItemsByFechaDesc(allItems).slice(0, GASTOS_FETCH_LIMIT);
         }
       }
-
-      const gastosOrdenados = [...gastosItems].sort((a: any, b: any) => {
-        const fechaA = a.fields?.FECHA || a.fields?.Fecha || a.fields?.fecha;
-        const fechaB = b.fields?.FECHA || b.fields?.Fecha || b.fields?.fecha;
-        return parseFecha(fechaB) - parseFecha(fechaA);
-      });
 
       const gastosProcesados =
         mode === "recent"
-          ? gastosOrdenados.slice(0, GASTOS_FETCH_LIMIT)
-          : gastosOrdenados;
-      
-      // Obtener todos los items con sus attachments usando SharePoint REST API
-      // Microsoft Graph API no soporta attachments en list items directamente
-      let itemsWithAttachments: any[] = gastosProcesados;
-      if (includeAttachments) {
-        const siteUrl = getSharePointSiteUrl();
-        const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
+          ? gastosItems.slice(0, GASTOS_FETCH_LIMIT)
+          : gastosItems;
 
-        itemsWithAttachments = await Promise.all(
-          gastosProcesados.map(async (item: any) => {
-          // Obtener attachments usando SharePoint REST API
-          let attachments: Array<{ nombre: string; url: string; tipo: string }> = [];
-          
-          // Solo intentar obtener attachments si el campo Attachments es true
-          if (item.fields?.Attachments === true) {
-            try {
-              // Usar el nombre de la lista en lugar del GUID para SharePoint REST API
-              // IMPORTANTE: Usar la URL completa del sitio (incluyendo el path)
-              const listName = LISTS.GASTOS;
-              const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${item.id})/AttachmentFiles`;
-              const attachmentsResponse = await fetch(restApiUrl, {
-                method: 'GET',
-                headers: {
-                  'Accept': 'application/json;odata=verbose',
-                  'Authorization': `Bearer ${token}`,
-                },
-              });
-              
-              if (attachmentsResponse.ok) {
-                const data = await attachmentsResponse.json();
-                if (data.d && data.d.results && data.d.results.length > 0) {
-                  // Construir la URL del endpoint REST API para descargar el archivo
-                  // Usamos GetFileByServerRelativeUrl que es el método recomendado
-                  attachments = data.d.results.map((att: any) => {
-                    // Escapar comillas simples en ServerRelativeUrl para el endpoint
-                    const escapedUrl = att.ServerRelativeUrl.replace(/'/g, "''");
-                    const downloadUrl = `${siteUrl}/_api/web/GetFileByServerRelativeUrl('${escapedUrl}')/$value`;
-                    
-                    return {
-                      nombre: att.FileName,
-                      url: downloadUrl,
-                      tipo: att.ContentType || 'application/octet-stream',
-                      serverRelativeUrl: att.ServerRelativeUrl, // Guardar también para referencia
-                    };
-                  });
-                }
-              }
-            } catch (attachmentsError) {
-              console.warn(`⚠️ No se pudieron obtener attachments para item ${item.id}:`, attachmentsError);
-            }
-          }
-          
-          return { ...item, attachments };
-          })
-        );
-      }
-      
-      return itemsWithAttachments.map((item: any) => {
-        // CATEGORIA es un campo lookup
-        // SharePoint almacena campos lookup con sufijos: "CATEGORIALookupId"
-        // Basado en el item 9 revisado: "CATEGORIALookupId": "3"
-        let categoriaId = "";
-        
-        // Buscar el campo lookup usando los nombres posibles
-        const categoriaLookupId = item.fields.CATEGORIALookupId || 
-                                  item.fields.CATEGORIA_x003a__x0020_IDLookupId ||
-                                  item.fields.CATEGORIA;
-        
-        if (categoriaLookupId) {
-          if (typeof categoriaLookupId === 'object' && categoriaLookupId.LookupId) {
-            // Es un objeto lookup
-            categoriaId = String(categoriaLookupId.LookupId);
-          } else {
-            // Es directamente el ID (número o string)
-            categoriaId = String(categoriaLookupId);
-          }
-        }
-        
-        // EMPRESA es un campo lookup
-        let empresaId = "";
-        const empresaLookupId = item.fields.EMPRESALookupId || 
-                                item.fields.EMPRESA_x003a__x0020_IDLookupId ||
-                                item.fields.EMPRESA;
-        if (empresaLookupId) {
-          empresaId = String(empresaLookupId);
-        }
-        
-        // TIPO_DOCUMENTO es un campo lookup
-        let tipoDocumentoId = "";
-        const tipoDocumentoLookupId = item.fields.TIPO_DOCUMENTOLookupId || 
-                                      item.fields.TIPO_DOCUMENTO_x003a__x0020_IDLookupId ||
-                                      item.fields.TIPO_DOCUMENTO;
-        if (tipoDocumentoLookupId) {
-          tipoDocumentoId = String(tipoDocumentoLookupId);
-        }
-        
-        // PROYECTO es un campo lookup
-        let proyectoId = "";
-        const proyectoLookupId = item.fields.PROYECTOLookupId || 
-                                 item.fields.PROYECTO_x003a__x0020_IDLookupId ||
-                                 item.fields.PROYECTO;
-        if (proyectoLookupId) {
-          proyectoId = String(proyectoLookupId);
-        }
-        
-        // PERSONA es un campo lookup
-        let colaboradorId = "";
-        const personaLookupId = item.fields.PERSONALookupId || 
-                               item.fields.PERSONA_x003a__x0020_IDLookupId ||
-                               item.fields.PERSONA;
-        if (personaLookupId) {
-          if (typeof personaLookupId === 'object' && personaLookupId.LookupId) {
-            // Es un objeto lookup
-            colaboradorId = String(personaLookupId.LookupId);
-          } else {
-            // Es directamente el ID (número o string)
-            colaboradorId = String(personaLookupId);
-          }
-        }
-        
-        return {
-          id: item.id,
-          fecha: item.fields.FECHA || item.fields.Fecha || item.fields.fecha || "",
-          empresaId: empresaId, // Usar el ID del lookup
-          categoria: categoriaId, // Usar el ID del lookup
-          tipoDocumento: tipoDocumentoId || "Factura", // Usar el ID del lookup (necesitaremos mapear a nombre después)
-          numeroDocumento: item.fields.NUMERO_DOCUMENTO || item.fields.NumeroDocumento || item.fields.numeroDocumento || "",
-          // Usar MONTO_TOTAL como principal, con fallback a MONTO para compatibilidad con datos antiguos
-          montoTotal: item.fields.MONTO_TOTAL || item.fields.MontoTotal || item.fields.montoTotal || item.fields.MONTO || item.fields.Monto || item.fields.monto || 0,
-          monto: item.fields.MONTO_TOTAL || item.fields.MontoTotal || item.fields.montoTotal || item.fields.MONTO || item.fields.Monto || item.fields.monto || 0, // Para compatibilidad interna
-          montoNeto: item.fields.MONTO_NETO || item.fields.MontoNeto || item.fields.montoNeto || undefined,
-          iva: item.fields.IVA || item.fields.Iva || item.fields.iva || undefined,
-          detalle: item.fields.DETALLE || item.fields.Detalle || item.fields.detalle || "",
-          proyectoId: proyectoId || undefined, // Usar el ID del lookup
-          colaboradorId: colaboradorId || undefined, // Usar el ID del lookup de PERSONA
-          comentarioTipoDocumento: item.fields.OTRO || item.fields.Otro || item.fields.otro || undefined,
-          archivosAdjuntos: item.attachments && item.attachments.length > 0 ? item.attachments : undefined,
-        };
-      });
+      const withAttachments = await loadAttachmentsForGastosItems(gastosProcesados, includeAttachments);
+      return withAttachments.map(mapSharePointGastoItem);
     } catch (error) {
       console.error("Error al obtener gastos:", error);
       throw error;
@@ -777,17 +913,17 @@ export const gastosService = {
       let personaId: number | null = null;
       
       if (userEmail) {
-        console.log(`🔍 Buscando colaborador para el usuario: ${userEmail}`);
+        console.log(`[INFO]¿½ Buscando colaborador para el usuario: ${userEmail}`);
         const colaboradorIdStr = await findColaboradorByEmail(userEmail);
         if (colaboradorIdStr) {
           const parsed = Number(colaboradorIdStr);
           if (!isNaN(parsed) && parsed > 0) {
             personaId = parsed;
-            console.log(`✅ Colaborador encontrado, ID: ${personaId}`);
+            console.log(`ï¿½o. Colaborador encontrado, ID: ${personaId}`);
           }
         }
       } else {
-        console.warn("⚠️ No se pudo obtener el email del usuario logueado");
+        console.warn("ï¿½sï¿½ï¸ No se pudo obtener el email del usuario logueado");
       }
       
       // Obtener los nombres internos de las columnas lookup
@@ -797,21 +933,21 @@ export const gastosService = {
       const tipoDocumentoColumnName = await getColumnInternalName(listId, "TIPO_DOCUMENTO");
       const personaColumnName = await getColumnInternalName(listId, "PERSONA");
       
-      console.log("📋 Nombres internos de columnas lookup:");
+      console.log("[INFO] Nombres internos de columnas lookup:");
       console.log("  - CATEGORIA:", categoriaColumnName);
       console.log("  - EMPRESA:", empresaColumnName);
       console.log("  - PROYECTO:", proyectoColumnName);
       console.log("  - TIPO_DOCUMENTO:", tipoDocumentoColumnName);
       console.log("  - PERSONA:", personaColumnName);
       
-      // Parsear IDs de campos lookup (deben ser números)
+      // Parsear IDs de campos lookup (deben ser nÃºmeros)
       let categoriaId: number | null = null;
       if (gasto.categoria) {
         const parsed = Number(gasto.categoria);
         if (!isNaN(parsed) && parsed > 0) {
           categoriaId = parsed;
         } else {
-          console.warn("⚠️ ID de categoría inválido:", gasto.categoria);
+          console.warn("ï¿½sï¿½ï¸ ID de categorÃ­a invÃ¡lido:", gasto.categoria);
         }
       }
       
@@ -821,7 +957,7 @@ export const gastosService = {
         if (!isNaN(parsed) && parsed > 0) {
           empresaId = parsed;
         } else {
-          console.warn("⚠️ ID de empresa inválido:", gasto.empresaId);
+          console.warn("ï¿½sï¿½ï¸ ID de empresa invÃ¡lido:", gasto.empresaId);
         }
       }
       
@@ -831,25 +967,25 @@ export const gastosService = {
         if (!isNaN(parsed) && parsed > 0) {
           proyectoId = parsed;
         } else {
-          console.warn("⚠️ ID de proyecto inválido:", gasto.proyectoId);
+          console.warn("ï¿½sï¿½ï¸ ID de proyecto invÃ¡lido:", gasto.proyectoId);
         }
       }
       
       // TIPO_DOCUMENTO es lookup, necesitamos el ID
-      // Por ahora, asumimos que viene como ID numérico
+      // Por ahora, asumimos que viene como ID numÃ©rico
       let tipoDocumentoId: number | null = null;
       if (gasto.tipoDocumento) {
         const parsed = Number(gasto.tipoDocumento);
         if (!isNaN(parsed) && parsed > 0) {
           tipoDocumentoId = parsed;
         } else {
-          // Si no es un número, puede ser el nombre del tipo de documento
-          // Por ahora, lo ignoramos y se actualizará después si es necesario
-          console.warn("⚠️ TIPO_DOCUMENTO no es un ID numérico:", gasto.tipoDocumento);
+          // Si no es un nÃºmero, puede ser el nombre del tipo de documento
+          // Por ahora, lo ignoramos y se actualizarÃ¡ despuÃ©s si es necesario
+          console.warn("ï¿½sï¿½ï¸ TIPO_DOCUMENTO no es un ID numÃ©rico:", gasto.tipoDocumento);
         }
       }
       
-      // Campos básicos que NO son lookup
+      // Campos bÃ¡sicos que NO son lookup
       // Ya no guardamos MONTO, solo MONTO_TOTAL
       const fields: any = {
         FECHA: gasto.fecha,
@@ -859,7 +995,7 @@ export const gastosService = {
           : gasto.monto, // Fallback al monto si no hay montoTotal
       };
       
-      // Agregar campos de impuestos si están definidos
+      // Agregar campos de impuestos si estÃ¡n definidos
       if (gasto.montoNeto !== undefined && gasto.montoNeto !== null) {
         fields.MONTO_NETO = gasto.montoNeto;
       }
@@ -867,7 +1003,7 @@ export const gastosService = {
         fields.IVA = gasto.iva;
       }
       
-      // Agregar campos de texto simples (estos deberían funcionar)
+      // Agregar campos de texto simples (estos deberÃ­an funcionar)
       if (gasto.detalle && gasto.detalle.trim() !== "") {
         fields.DETALLE = gasto.detalle;
       }
@@ -881,113 +1017,113 @@ export const gastosService = {
       }
       
       // NOTA: Todos los campos lookup (CATEGORIA, EMPRESA, PROYECTO, TIPO_DOCUMENTO)
-      // se manejarán después con PATCH, no se agregan al POST inicial
+      // se manejarÃ¡n despuÃ©s con PATCH, no se agregan al POST inicial
       
       // Solo agregar ArchivosAdjuntos si existe
       if (gasto.archivosAdjuntos && gasto.archivosAdjuntos.length > 0) {
         fields.ArchivosAdjuntos = JSON.stringify(gasto.archivosAdjuntos);
       }
       
-      console.log("📤 Campos a enviar:", JSON.stringify(fields, null, 2));
-      console.log("📤 Tipo de cada campo:", Object.keys(fields).map(key => `${key}: ${typeof fields[key]}`));
+      console.log("[INFO]¿½ Campos a enviar:", JSON.stringify(fields, null, 2));
+      console.log("[INFO]¿½ Tipo de cada campo:", Object.keys(fields).map(key => `${key}: ${typeof fields[key]}`));
       
       // Validar que no haya campos undefined o null (SharePoint no los acepta)
       const cleanFields: any = {};
       Object.keys(fields).forEach(key => {
         const value = fields[key];
-        // Solo incluir campos que tengan un valor válido
+        // Solo incluir campos que tengan un valor vÃ¡lido
         if (value !== undefined && value !== null && value !== "") {
           cleanFields[key] = value;
         }
       });
       
-      console.log("📤 Campos limpios a enviar:", JSON.stringify(cleanFields, null, 2));
+      console.log("[INFO]¿½ Campos limpios a enviar:", JSON.stringify(cleanFields, null, 2));
       
-      // Limpiar campos y preparar para envío
+      // Limpiar campos y preparar para envÃ­o
       const fieldsToSend = { ...cleanFields };
       
       // Remover ArchivosAdjuntos por ahora (puede causar problemas)
       if (fieldsToSend.ArchivosAdjuntos) {
-        console.log("⚠️ Removiendo campo ArchivosAdjuntos (se agregará después)...");
+        console.log("ï¿½sï¿½ï¸ Removiendo campo ArchivosAdjuntos (se agregarÃ¡ despuÃ©s)...");
         delete fieldsToSend.ArchivosAdjuntos;
       }
       
       // Remover cualquier referencia al campo MONTO (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)
       if (fieldsToSend.MONTO) {
-        console.log("⚠️ Removiendo campo MONTO (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        console.log("ï¿½sï¿½ï¸ Removiendo campo MONTO (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
         delete fieldsToSend.MONTO;
       }
       if (fieldsToSend.Monto) {
-        console.log("⚠️ Removiendo campo Monto (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        console.log("ï¿½sï¿½ï¸ Removiendo campo Monto (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
         delete fieldsToSend.Monto;
       }
       if (fieldsToSend.monto) {
-        console.log("⚠️ Removiendo campo monto (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
+        console.log("ï¿½sï¿½ï¸ Removiendo campo monto (ya no existe, se usa MONTO_TOTAL y MONTO_NETO)...");
         delete fieldsToSend.monto;
       }
       
       // Remover todos los campos lookup del POST inicial (SharePoint rechaza lookup en POST)
-      // Estos se actualizarán después con PATCH
+      // Estos se actualizarÃ¡n despuÃ©s con PATCH
       const lookupFieldsToUpdate: { [key: string]: number } = {};
       
       // CATEGORIA
       if (fieldsToSend[categoriaColumnName] || fieldsToSend.CATEGORIA) {
-        console.log("⚠️ Removiendo campo CATEGORIA del POST (se actualizará con PATCH después)");
+        console.log("ï¿½sï¿½ï¸ Removiendo campo CATEGORIA del POST (se actualizarÃ¡ con PATCH despuÃ©s)");
         delete fieldsToSend[categoriaColumnName];
         delete fieldsToSend.CATEGORIA;
       }
       if (categoriaId !== null) {
         lookupFieldsToUpdate[`${categoriaColumnName}LookupId`] = categoriaId;
-        console.log("📝 Categoría ID guardado para actualizar después:", categoriaId);
+        console.log("[INFO]¿½ CategorÃ­a ID guardado para actualizar despuÃ©s:", categoriaId);
       }
       
       // EMPRESA
       if (fieldsToSend[empresaColumnName] || fieldsToSend.EMPRESA) {
-        console.log("⚠️ Removiendo campo EMPRESA del POST (se actualizará con PATCH después)");
+        console.log("ï¿½sï¿½ï¸ Removiendo campo EMPRESA del POST (se actualizarÃ¡ con PATCH despuÃ©s)");
         delete fieldsToSend[empresaColumnName];
         delete fieldsToSend.EMPRESA;
       }
       if (empresaId !== null) {
         lookupFieldsToUpdate[`${empresaColumnName}LookupId`] = empresaId;
-        console.log("📝 Empresa ID guardado para actualizar después:", empresaId);
+        console.log("[INFO]¿½ Empresa ID guardado para actualizar despuÃ©s:", empresaId);
       }
       
       // PROYECTO
       if (fieldsToSend[proyectoColumnName] || fieldsToSend.PROYECTO) {
-        console.log("⚠️ Removiendo campo PROYECTO del POST (se actualizará con PATCH después)");
+        console.log("ï¿½sï¿½ï¸ Removiendo campo PROYECTO del POST (se actualizarÃ¡ con PATCH despuÃ©s)");
         delete fieldsToSend[proyectoColumnName];
         delete fieldsToSend.PROYECTO;
       }
       if (proyectoId !== null) {
         lookupFieldsToUpdate[`${proyectoColumnName}LookupId`] = proyectoId;
-        console.log("📝 Proyecto ID guardado para actualizar después:", proyectoId);
+        console.log("[INFO]¿½ Proyecto ID guardado para actualizar despuÃ©s:", proyectoId);
       }
       
       // TIPO_DOCUMENTO
       if (fieldsToSend[tipoDocumentoColumnName] || fieldsToSend.TIPO_DOCUMENTO) {
-        console.log("⚠️ Removiendo campo TIPO_DOCUMENTO del POST (se actualizará con PATCH después)");
+        console.log("ï¿½sï¿½ï¸ Removiendo campo TIPO_DOCUMENTO del POST (se actualizarÃ¡ con PATCH despuÃ©s)");
         delete fieldsToSend[tipoDocumentoColumnName];
         delete fieldsToSend.TIPO_DOCUMENTO;
       }
       if (tipoDocumentoId !== null) {
         lookupFieldsToUpdate[`${tipoDocumentoColumnName}LookupId`] = tipoDocumentoId;
-        console.log("📝 Tipo Documento ID guardado para actualizar después:", tipoDocumentoId);
+        console.log("[INFO]¿½ Tipo Documento ID guardado para actualizar despuÃ©s:", tipoDocumentoId);
       }
       
       // PERSONA (colaborador identificado por email del usuario logueado)
       if (personaId !== null) {
         const personaLookupField = `${personaColumnName}LookupId`;
         lookupFieldsToUpdate[personaLookupField] = personaId;
-        console.log("📝 Persona ID guardado para actualizar después:");
+        console.log("[INFO]¿½ Persona ID guardado para actualizar despuÃ©s:");
         console.log(`  - Campo: ${personaLookupField}`);
         console.log(`  - Valor: ${personaId}`);
         console.log(`  - Tipo: ${typeof personaId}`);
       } else {
-        console.warn("⚠️ No se pudo obtener el ID de la persona. No se guardará en el campo PERSONA.");
+        console.warn("ï¿½sï¿½ï¸ No se pudo obtener el ID de la persona. No se guardarÃ¡ en el campo PERSONA.");
       }
       
-      console.log("📤 Campos finales a enviar (sin categoría):", JSON.stringify(fieldsToSend, null, 2));
-      console.log("📤 ¿Incluye CATEGORIA?", categoriaColumnName in fieldsToSend || "CATEGORIA" in fieldsToSend);
+      console.log("[INFO]¿½ Campos finales a enviar (sin categorÃ­a):", JSON.stringify(fieldsToSend, null, 2));
+      console.log("[INFO]¿½ Â¿Incluye CATEGORIA?", categoriaColumnName in fieldsToSend || "CATEGORIA" in fieldsToSend);
       
       // Crear el item SIN el campo lookup primero (para evitar error 400)
       const response = await client
@@ -997,22 +1133,22 @@ export const gastosService = {
           fields: fieldsToSend,
         });
       
-      console.log("✅ Gasto creado exitosamente (sin campos lookup). Response ID:", response.id);
+      console.log("ï¿½o. Gasto creado exitosamente (sin campos lookup). Response ID:", response.id);
       
-      // Actualizar todos los campos lookup con PATCH después de crear el item
+      // Actualizar todos los campos lookup con PATCH despuÃ©s de crear el item
       // IMPORTANTE: Para campos lookup, SharePoint usa nombres con sufijo "LookupId"
       if (Object.keys(lookupFieldsToUpdate).length > 0) {
         try {
-          console.log("📝 Actualizando campos lookup después de crear el item...");
-          console.log("📝 ID del item:", response.id);
-          console.log("📝 Campos lookup a actualizar:", lookupFieldsToUpdate);
+          console.log("[INFO]¿½ Actualizando campos lookup despuÃ©s de crear el item...");
+          console.log("[INFO]¿½ ID del item:", response.id);
+          console.log("[INFO]¿½ Campos lookup a actualizar:", lookupFieldsToUpdate);
           
           // Actualizar todos los campos lookup en una sola llamada PATCH
           await client
             .api(`/sites/${siteId}/lists/${listId}/items/${response.id}/fields`)
             .patch(lookupFieldsToUpdate);
           
-          console.log("✅ Campos lookup actualizados exitosamente");
+          console.log("ï¿½o. Campos lookup actualizados exitosamente");
           
           // Leer el item actualizado para verificar
           const itemUpdated = await client
@@ -1021,43 +1157,43 @@ export const gastosService = {
             .get();
           
           // Verificar que los campos se guardaron
-          console.log("🔍 Verificando campos lookup actualizados:");
+          console.log("[INFO]¿½ Verificando campos lookup actualizados:");
           Object.keys(lookupFieldsToUpdate).forEach(fieldName => {
             const valorGuardado = itemUpdated.fields?.[fieldName];
             if (valorGuardado) {
-              console.log(`✅ Campo ${fieldName} verificado y guardado correctamente:`, valorGuardado);
+              console.log(`ï¿½o. Campo ${fieldName} verificado y guardado correctamente:`, valorGuardado);
             } else {
-              console.warn(`⚠️ Campo ${fieldName} no aparece después de actualizar. Verifica en SharePoint.`);
-              console.warn(`⚠️ Campos disponibles en el item:`, Object.keys(itemUpdated.fields || {}));
+              console.warn(`ï¿½sï¿½ï¸ Campo ${fieldName} no aparece despuÃ©s de actualizar. Verifica en SharePoint.`);
+              console.warn(`ï¿½sï¿½ï¸ Campos disponibles en el item:`, Object.keys(itemUpdated.fields || {}));
             }
           });
           
-          // Verificación específica para PERSONA
+          // VerificaciÃ³n especÃ­fica para PERSONA
           if (personaId !== null) {
             const personaLookupField = `${personaColumnName}LookupId`;
             const personaGuardada = itemUpdated.fields?.[personaLookupField];
             if (personaGuardada) {
-              console.log(`✅ Campo PERSONA (${personaLookupField}) guardado correctamente:`, personaGuardada);
+              console.log(`ï¿½o. Campo PERSONA (${personaLookupField}) guardado correctamente:`, personaGuardada);
             } else {
-              console.error(`❌ Campo PERSONA (${personaLookupField}) NO se guardó. Valor esperado: ${personaId}`);
-              console.error(`❌ Todos los campos del item:`, JSON.stringify(itemUpdated.fields, null, 2));
+              console.error(`ï¿½O Campo PERSONA (${personaLookupField}) NO se guardÃ³. Valor esperado: ${personaId}`);
+              console.error(`ï¿½O Todos los campos del item:`, JSON.stringify(itemUpdated.fields, null, 2));
             }
           }
         } catch (updateError: any) {
-          console.error("❌ Error al actualizar los campos lookup:", updateError);
+          console.error("ï¿½O Error al actualizar los campos lookup:", updateError);
           if (updateError?.body) {
-            console.error("❌ Detalles del error:", JSON.stringify(updateError.body, null, 2));
+            console.error("ï¿½O Detalles del error:", JSON.stringify(updateError.body, null, 2));
           }
-          // No lanzar el error - el item ya se creó, solo fallaron los campos lookup
-          console.warn("⚠️ El gasto se creó pero algunos campos lookup no se pudieron actualizar. Intenta actualizarlos manualmente.");
+          // No lanzar el error - el item ya se creÃ³, solo fallaron los campos lookup
+          console.warn("ï¿½sï¿½ï¸ El gasto se creÃ³ pero algunos campos lookup no se pudieron actualizar. Intenta actualizarlos manualmente.");
         }
       }
       
-      // Subir archivos adjuntos después de crear el item
+      // Subir archivos adjuntos despuÃ©s de crear el item
       if (gasto.archivosAdjuntos && gasto.archivosAdjuntos.length > 0) {
         try {
-          console.log("📎 Subiendo archivos adjuntos...");
-          console.log("📎 Número de archivos:", gasto.archivosAdjuntos.length);
+          console.log("[INFO] Subiendo archivos adjuntos...");
+          console.log("[INFO] NÃºmero de archivos:", gasto.archivosAdjuntos.length);
           
           // Los archivos vienen como objetos con {nombre, url, tipo}
           // Necesitamos convertir las URLs de blob a archivos File para subirlos
@@ -1075,35 +1211,35 @@ export const gastosService = {
               archivosParaSubir.push((archivo as any).file);
             } else {
               // Si viene como objeto con URL blob, necesitamos el File original
-              // Por ahora, saltamos estos archivos y los manejaremos después
-              console.warn("⚠️ Archivo sin File object:", archivo.nombre);
+              // Por ahora, saltamos estos archivos y los manejaremos despuÃ©s
+              console.warn("ï¿½sï¿½ï¸ Archivo sin File object:", archivo.nombre);
             }
           }
           
           // Subir cada archivo como attachment
           for (const archivo of archivosParaSubir) {
             try {
-              console.log(`📎 Subiendo archivo: ${archivo.name}`);
+              console.log(`[INFO] Subiendo archivo: ${archivo.name}`);
               
               // Leer el archivo como ArrayBuffer
               const arrayBuffer = await archivo.arrayBuffer();
               
-              console.log(`📤 Archivo leído: ${archivo.name} (${arrayBuffer.byteLength} bytes, tipo: ${archivo.type || 'application/octet-stream'})`);
+              console.log(`[INFO]¿½ Archivo leÃ­do: ${archivo.name} (${arrayBuffer.byteLength} bytes, tipo: ${archivo.type || 'application/octet-stream'})`);
               
               // Subir el archivo usando SharePoint REST API
               // Microsoft Graph API no soporta attachments en list items
               const siteUrl = getSharePointSiteUrl();
-              const token = await getSharePointRestToken(); // Token específico para SharePoint REST API
+              const token = await getSharePointRestToken(); // Token especÃ­fico para SharePoint REST API
               
               // Construir la URL de SharePoint REST API para subir el attachment
               // IMPORTANTE: Usar la URL completa del sitio (incluyendo el path), no solo el origin
               const listName = LISTS.GASTOS;
-              // SharePoint REST API requiere que el nombre del archivo esté codificado correctamente
+              // SharePoint REST API requiere que el nombre del archivo estÃ© codificado correctamente
               // Usar encodeURIComponent para manejar caracteres especiales en el nombre del archivo
               const fileName = encodeURIComponent(archivo.name);
               const restApiUrl = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${response.id})/AttachmentFiles/add(FileName='${fileName}')`;
               
-              console.log(`📤 Subiendo archivo a: ${restApiUrl}`);
+              console.log(`[INFO]¿½ Subiendo archivo a: ${restApiUrl}`);
               
               // Subir el archivo usando SharePoint REST API
               // IMPORTANTE: SharePoint REST API requiere el contenido binario directamente, no base64
@@ -1123,44 +1259,46 @@ export const gastosService = {
                 throw new Error(`Error ${uploadResponse.status}: ${errorText}`);
               }
               
-              console.log(`✅ Archivo ${archivo.name} subido exitosamente`);
+              console.log(`ï¿½o. Archivo ${archivo.name} subido exitosamente`);
             } catch (fileError: any) {
-              console.error(`❌ Error al subir archivo ${archivo.name}:`, fileError);
+              console.error(`ï¿½O Error al subir archivo ${archivo.name}:`, fileError);
               if (fileError?.body) {
-                console.error("❌ Detalles del error:", JSON.stringify(fileError.body, null, 2));
+                console.error("ï¿½O Detalles del error:", JSON.stringify(fileError.body, null, 2));
               }
-              // Continuar con los demás archivos
+              // Continuar con los demÃ¡s archivos
             }
           }
           
           if (archivosParaSubir.length > 0) {
-            console.log(`✅ ${archivosParaSubir.length} archivo(s) adjunto(s) subido(s) exitosamente`);
+            console.log(`ï¿½o. ${archivosParaSubir.length} archivo(s) adjunto(s) subido(s) exitosamente`);
           }
         } catch (attachmentsError: any) {
-          console.error("❌ Error al subir archivos adjuntos:", attachmentsError);
+          console.error("ï¿½O Error al subir archivos adjuntos:", attachmentsError);
           if (attachmentsError?.body) {
-            console.error("❌ Detalles del error:", JSON.stringify(attachmentsError.body, null, 2));
+            console.error("ï¿½O Detalles del error:", JSON.stringify(attachmentsError.body, null, 2));
           }
-          // No lanzar el error - el item ya se creó, solo fallaron los archivos
-          console.warn("⚠️ El gasto se creó pero algunos archivos adjuntos no se pudieron subir.");
+          // No lanzar el error - el item ya se creÃ³, solo fallaron los archivos
+          console.warn("ï¿½sï¿½ï¸ El gasto se creÃ³ pero algunos archivos adjuntos no se pudieron subir.");
         }
       }
       
+      gastosLocalPaginationCache = null;
+
       return {
         id: response.id,
         ...gasto,
       };
     } catch (error: any) {
-      console.error("❌ Error al crear gasto:", error);
+      console.error("ï¿½O Error al crear gasto:", error);
       if (error instanceof Error) {
         console.error("Detalles del error:", error.message);
       }
-      // Mostrar más detalles del error si están disponibles
+      // Mostrar mÃ¡s detalles del error si estÃ¡n disponibles
       if (error?.body) {
         console.error("Cuerpo del error:", JSON.stringify(error.body, null, 2));
       }
       if (error?.statusCode) {
-        console.error("Código de estado:", error.statusCode);
+        console.error("CÃ³digo de estado:", error.statusCode);
       }
       throw error;
     }
@@ -1178,7 +1316,7 @@ export const gastosService = {
       const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
       const tipoDocumentoColumnName = await getColumnInternalName(listId, "TIPO_DOCUMENTO");
       
-      // Campos básicos que NO son lookup
+      // Campos bÃ¡sicos que NO son lookup
       const fields: any = {};
       
       if (gasto.fecha !== undefined && gasto.fecha !== null && gasto.fecha !== '') {
@@ -1221,9 +1359,9 @@ export const gastosService = {
         const parsed = Number(gasto.categoria);
         if (!isNaN(parsed) && parsed > 0) {
           lookupFields[`${categoriaColumnName}LookupId`] = parsed;
-          console.log("📝 Actualizando categoría con ID:", parsed);
+          console.log("[INFO]¿½ Actualizando categorÃ­a con ID:", parsed);
         } else {
-          console.warn("⚠️ ID de categoría inválido para actualización:", gasto.categoria);
+          console.warn("ï¿½sï¿½ï¸ ID de categorÃ­a invÃ¡lido para actualizaciÃ³n:", gasto.categoria);
         }
       }
       
@@ -1232,9 +1370,9 @@ export const gastosService = {
         const parsed = Number(gasto.empresaId);
         if (!isNaN(parsed) && parsed > 0) {
           lookupFields[`${empresaColumnName}LookupId`] = parsed;
-          console.log("📝 Actualizando empresa con ID:", parsed);
+          console.log("[INFO]¿½ Actualizando empresa con ID:", parsed);
         } else {
-          console.warn("⚠️ ID de empresa inválido para actualización:", gasto.empresaId);
+          console.warn("ï¿½sï¿½ï¸ ID de empresa invÃ¡lido para actualizaciÃ³n:", gasto.empresaId);
         }
       }
       
@@ -1243,9 +1381,9 @@ export const gastosService = {
         const parsed = Number(gasto.proyectoId);
         if (!isNaN(parsed) && parsed > 0) {
           lookupFields[`${proyectoColumnName}LookupId`] = parsed;
-          console.log("📝 Actualizando proyecto con ID:", parsed);
+          console.log("[INFO]¿½ Actualizando proyecto con ID:", parsed);
         } else {
-          console.warn("⚠️ ID de proyecto inválido para actualización:", gasto.proyectoId);
+          console.warn("ï¿½sï¿½ï¸ ID de proyecto invÃ¡lido para actualizaciÃ³n:", gasto.proyectoId);
         }
       }
       
@@ -1254,13 +1392,13 @@ export const gastosService = {
         const parsed = Number(gasto.tipoDocumento);
         if (!isNaN(parsed) && parsed > 0) {
           lookupFields[`${tipoDocumentoColumnName}LookupId`] = parsed;
-          console.log("📝 Actualizando tipo documento con ID:", parsed);
+          console.log("[INFO]¿½ Actualizando tipo documento con ID:", parsed);
         } else {
-          console.warn("⚠️ ID de tipo documento inválido para actualización:", gasto.tipoDocumento);
+          console.warn("ï¿½sï¿½ï¸ ID de tipo documento invÃ¡lido para actualizaciÃ³n:", gasto.tipoDocumento);
         }
       }
       
-      // Limpiar campos: no enviar undefined, null o strings vacíos
+      // Limpiar campos: no enviar undefined, null o strings vacÃ­os
       const cleanFields: any = {};
       Object.keys(fields).forEach(key => {
         const value = fields[key];
@@ -1272,12 +1410,14 @@ export const gastosService = {
       // Combinar campos normales y lookup
       const finalFields = { ...cleanFields, ...lookupFields };
       
-      console.log("📤 Campos a actualizar:", JSON.stringify(finalFields, null, 2));
+      console.log("[INFO]¿½ Campos a actualizar:", JSON.stringify(finalFields, null, 2));
       
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
         .patch(finalFields);
       
+      gastosLocalPaginationCache = null;
+
       return {
         id,
         ...gasto,
@@ -1303,6 +1443,8 @@ export const gastosService = {
       await client
         .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
         .delete();
+
+      gastosLocalPaginationCache = null;
     } catch (error) {
       console.error("Error al eliminar gasto:", error);
       throw error;
@@ -1333,7 +1475,7 @@ export const empresasService = {
       }
       
       return response.value.map((item: any) => {
-        // Manejar la fecha de creación de forma segura
+        // Manejar la fecha de creaciÃ³n de forma segura
         let createdAt = "";
         try {
           const fechaValue = item.fields.CreatedAt || item.createdDateTime || item.fields.Created || "";
@@ -1393,7 +1535,7 @@ export const empresasService = {
         CORREO: empresa.correoElectronico || "",
       };
       
-      // Agregar CATEGORIA si está definida (campo Choice)
+      // Agregar CATEGORIA si estÃ¡ definida (campo Choice)
       if (empresa.categoria) {
         fields.CATEGORIA = empresa.categoria;
       }
@@ -1470,7 +1612,7 @@ async function ensureUniqueProjectCode(
 ): Promise<void> {
   const normalizedCode = normalizeProjectCode(code);
   if (!normalizedCode) {
-    throw new Error("El código de proyecto es obligatorio");
+    throw new Error("El cÃ³digo de proyecto es obligatorio");
   }
 
   const proyectos = await proyectosService.getAll();
@@ -1480,7 +1622,7 @@ async function ensureUniqueProjectCode(
   );
 
   if (duplicated) {
-    throw new Error(`Ya existe un proyecto con código "${normalizedCode}"`);
+    throw new Error(`Ya existe un proyecto con cÃ³digo "${normalizedCode}"`);
   }
 }
 
@@ -1632,7 +1774,7 @@ export const colaboradoresService = {
       }
       
       return response.value.map((item: any) => {
-        // Manejar la fecha de creación de forma segura
+        // Manejar la fecha de creaciÃ³n de forma segura
         let createdAt = "";
         try {
           const fechaValue = item.fields.CreatedAt || item.createdDateTime || item.fields.Created || "";
@@ -1743,7 +1885,7 @@ export const categoriasService = {
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .expand("fields")
         .select("id,fields")
-        .top(500) // Limitar a 500 items (suficiente para categorías)
+        .top(500) // Limitar a 500 items (suficiente para categorÃ­as)
         .get();
       
       return response.value.map((item: any) => ({
@@ -1752,7 +1894,7 @@ export const categoriasService = {
         color: item.fields.COLOR || item.fields.Color || `bg-category-${item.id}`,
       }));
     } catch (error) {
-      console.error("Error al obtener categorías:", error);
+      console.error("Error al obtener categorÃ­as:", error);
       throw error;
     }
   },
@@ -1782,7 +1924,7 @@ export const categoriasService = {
         ...categoria,
       };
     } catch (error) {
-      console.error("Error al crear categoría:", error);
+      console.error("Error al crear categorÃ­a:", error);
       throw error;
     }
   },
@@ -1806,7 +1948,7 @@ export const categoriasService = {
         ...categoria,
       } as Categoria;
     } catch (error) {
-      console.error("Error al actualizar categoría:", error);
+      console.error("Error al actualizar categorÃ­a:", error);
       throw error;
     }
   },
@@ -1821,21 +1963,21 @@ export const categoriasService = {
         .api(`/sites/${siteId}/lists/${listId}/items/${id}`)
         .delete();
     } catch (error) {
-      console.error("Error al eliminar categoría:", error);
+      console.error("Error al eliminar categorÃ­a:", error);
       throw error;
     }
   },
 
   /**
-   * Actualiza los colores de las categorías basándose en los nombres
-   * Mapea los nombres de categorías locales a sus colores (clases Tailwind que usan variables CSS)
+   * Actualiza los colores de las categorÃ­as basÃ¡ndose en los nombres
+   * Mapea los nombres de categorÃ­as locales a sus colores (clases Tailwind que usan variables CSS)
    */
   async updateCategoriasColors(): Promise<void> {
     const client = await getGraphClient();
     const siteId = await getCachedSiteId();
     const listId = await getListId(LISTS.CATEGORIAS);
     
-    // Mapeo de nombres de categorías a clases Tailwind que usan las variables CSS pasteles
+    // Mapeo de nombres de categorÃ­as a clases Tailwind que usan las variables CSS pasteles
     // Estas clases referencian los colores definidos en index.css
     const colorMap: Record<string, string> = {
       'Gastos Generales': 'bg-category-gastos-generales',
@@ -1846,13 +1988,13 @@ export const categoriasService = {
     };
     
     try {
-      // Obtener todas las categorías
+      // Obtener todas las categorÃ­as
       const response = await client
         .api(`/sites/${siteId}/lists/${listId}/items`)
         .expand("fields")
         .get();
       
-      // Actualizar cada categoría con su color correspondiente
+      // Actualizar cada categorÃ­a con su color correspondiente
       const updatePromises = response.value.map(async (item: any) => {
         const nombre = item.fields.NOM_CATEGORIA || item.fields.NomCategoria || item.fields.NOMBRE || item.fields.Nombre || item.fields.Title || "";
         const color = colorMap[nombre];
@@ -1864,19 +2006,19 @@ export const categoriasService = {
               .patch({
                 COLOR: color,
               });
-            console.log(`✅ Color actualizado para "${nombre}": ${color}`);
+            console.log(`ï¿½o. Color actualizado para "${nombre}": ${color}`);
           } catch (error) {
-            console.error(`❌ Error al actualizar color para "${nombre}":`, error);
+            console.error(`ï¿½O Error al actualizar color para "${nombre}":`, error);
           }
         } else {
-          console.warn(`⚠️ No se encontró color para la categoría "${nombre}"`);
+          console.warn(`ï¿½sï¿½ï¸ No se encontrÃ³ color para la categorÃ­a "${nombre}"`);
         }
       });
       
       await Promise.all(updatePromises);
-      console.log("✅ Actualización de colores completada");
+      console.log("ï¿½o. ActualizaciÃ³n de colores completada");
     } catch (error) {
-      console.error("Error al actualizar colores de categorías:", error);
+      console.error("Error al actualizar colores de categorÃ­as:", error);
       throw error;
     }
   },
@@ -1928,7 +2070,7 @@ export const tiposDocumentoService = {
         NOM_DOCUMENTO: tipoDocumento.nombre,
       };
       
-      // Agregar campos de impuestos si están definidos
+      // Agregar campos de impuestos si estÃ¡n definidos
       if (tipoDocumento.tieneImpuestos !== undefined) {
         fields.APLICA_IMPUESTO = tipoDocumento.tieneImpuestos;
       }
@@ -2047,12 +2189,64 @@ function normalizeUpper(value?: string): string {
   return (value || "").trim().toUpperCase();
 }
 
+async function ensureProyectoLookupSaved(params: {
+  client: any;
+  siteId: string;
+  listId: string;
+  itemId: string;
+  proyectoColumnName: string;
+  proyectoLookupId: number;
+}): Promise<void> {
+  const { client, siteId, listId, itemId, proyectoColumnName, proyectoLookupId } = params;
+  const candidateFields = Array.from(
+    new Set([
+      `${proyectoColumnName}LookupId`,
+      "PROYECTOLookupId",
+      "PROYECTO_x003a__x0020_IDLookupId",
+    ]),
+  );
+
+  let lastError: unknown;
+  for (const lookupField of candidateFields) {
+    if (!lookupField) continue;
+
+    try {
+      await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${itemId}/fields`)
+        .patch({
+          [lookupField]: proyectoLookupId,
+        });
+
+      const verify = await client
+        .api(`/sites/${siteId}/lists/${listId}/items/${itemId}`)
+        .expand("fields")
+        .get();
+
+      const savedLookupId = Number(
+        verify?.fields?.PROYECTOLookupId ||
+        verify?.fields?.PROYECTO_x003a__x0020_IDLookupId ||
+        (typeof verify?.fields?.PROYECTO === "number" ? verify.fields.PROYECTO : 0),
+      );
+
+      if (savedLookupId === proyectoLookupId) {
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+      console.warn(`[WARN] No se pudo asignar PROYECTO usando ${lookupField}:`, error);
+    }
+  }
+
+  console.error("[ERROR] Falló la asignación de PROYECTO en hito:", lastError);
+  throw new Error(`No se pudo guardar PROYECTO (lookup ID ${proyectoLookupId}) en el registro ${itemId}.`);
+}
+
 function parseBoolean(value: any, fallback = false): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return value === 1;
   if (typeof value === "string") {
     const normalized = value.trim().toLowerCase();
-    if (["true", "1", "si", "sí", "yes"].includes(normalized)) return true;
+    if (["true", "1", "si", "sÃ­", "yes"].includes(normalized)) return true;
     if (["false", "0", "no"].includes(normalized)) return false;
   }
   return fallback;
@@ -2072,6 +2266,12 @@ function detectMimeType(fileName: string): string {
     xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   };
   return (extension && mimeMap[extension]) || "application/octet-stream";
+}
+
+function buildSharePointDownloadUrl(siteUrl: string, serverRelativeUrl?: string): string {
+  if (!serverRelativeUrl) return "";
+  const escapedUrl = String(serverRelativeUrl).replace(/'/g, "''");
+  return `${siteUrl}/_api/web/GetFileByServerRelativeUrl('${escapedUrl}')/$value`;
 }
 
 async function getListItemAttachments(
@@ -2095,12 +2295,11 @@ async function getListItemAttachments(
     }
 
     const data = await response.json();
-    const origin = new URL(siteUrl).origin;
     const results = data?.d?.results || [];
 
     return results.map((att: any) => ({
       nombre: att.FileName,
-      url: `${origin}${att.ServerRelativeUrl}`,
+      url: buildSharePointDownloadUrl(siteUrl, att.ServerRelativeUrl),
       tipo: detectMimeType(att.FileName),
     }));
   } catch (error) {
@@ -2136,14 +2335,39 @@ async function uploadListItemAttachment(
   }
 
   const data = await response.json();
-  const origin = new URL(siteUrl).origin;
   const fileInfo = data?.d || {};
 
   return {
     nombre: file.name,
-    url: fileInfo.ServerRelativeUrl ? `${origin}${fileInfo.ServerRelativeUrl}` : "",
+    url: buildSharePointDownloadUrl(siteUrl, fileInfo.ServerRelativeUrl),
     tipo: file.type || detectMimeType(file.name),
   };
+}
+
+async function deleteListItemAttachment(
+  listName: string,
+  itemId: string,
+  fileName: string,
+): Promise<void> {
+  const siteUrl = getSharePointSiteUrl();
+  const token = await getSharePointRestToken();
+  const encodedName = encodeURIComponent(fileName);
+  const endpoint = `${siteUrl}/_api/web/lists/getbytitle('${listName}')/items(${itemId})/AttachmentFiles/getByFileName('${encodedName}')`;
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Accept: "application/json;odata=verbose",
+      Authorization: `Bearer ${token}`,
+      "IF-MATCH": "*",
+      "X-HTTP-Method": "DELETE",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Error al eliminar adjunto: ${response.status} ${errorText}`);
+  }
 }
 
 export const tiposDocumentoProyectoService = {
@@ -2367,7 +2591,7 @@ export const documentosProyectoService = {
     const tipoDocumentoLookupId = Number(input.tipoDocumentoProyectoId);
 
     if (Number.isNaN(proyectoLookupId) || Number.isNaN(tipoDocumentoLookupId)) {
-      throw new Error("IDs de lookup inválidos para el documento de proyecto");
+      throw new Error("IDs de lookup invÃ¡lidos para el documento de proyecto");
     }
 
     try {
@@ -2412,39 +2636,60 @@ export const documentosProyectoService = {
     }
   },
 
-  async update(id: string, payload: Partial<DocumentoProyecto>): Promise<DocumentoProyecto> {
+  async update(
+    id: string,
+    payload: Partial<DocumentoProyecto> & { archivo?: File | null },
+  ): Promise<DocumentoProyecto> {
     const client = await getGraphClient();
     const siteId = await getCachedSiteId();
     const listId = await getListId(LISTS.FCT_DOCUMENTOS_PROY);
+    const { archivo, ...fieldsPayload } = payload;
     const fields: any = {};
 
-    if (payload.codigoProyecto !== undefined) fields.COD_PROYECTO = normalizeUpper(payload.codigoProyecto);
-    if (payload.fechaDocumento !== undefined) fields.FECHA_DOCUMENTO = payload.fechaDocumento;
-    if (payload.nroReferencia !== undefined) fields.NRO_REFERENCIA = payload.nroReferencia || "";
-    if (payload.observacion !== undefined) fields.OBSERVACION = payload.observacion || "";
+    if (fieldsPayload.codigoProyecto !== undefined) fields.COD_PROYECTO = normalizeUpper(fieldsPayload.codigoProyecto);
+    if (fieldsPayload.fechaDocumento !== undefined) fields.FECHA_DOCUMENTO = fieldsPayload.fechaDocumento;
+    if (fieldsPayload.nroReferencia !== undefined) fields.NRO_REFERENCIA = fieldsPayload.nroReferencia || "";
+    if (fieldsPayload.observacion !== undefined) fields.OBSERVACION = fieldsPayload.observacion || "";
 
     try {
-      await client
-        .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
-        .patch(fields);
+      if (Object.keys(fields).length > 0) {
+        await client
+          .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+          .patch(fields);
+      }
 
-      if (payload.proyectoId !== undefined || payload.tipoDocumentoProyectoId !== undefined) {
+      if (fieldsPayload.proyectoId !== undefined || fieldsPayload.tipoDocumentoProyectoId !== undefined) {
         const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
         const tipoDocumentoColumnName = await getColumnInternalName(listId, "TIPO_DOCUMENTO");
         const lookupFields: any = {};
-        if (payload.proyectoId !== undefined) {
-          lookupFields[`${proyectoColumnName}LookupId`] = Number(payload.proyectoId);
+        if (fieldsPayload.proyectoId !== undefined) {
+          lookupFields[`${proyectoColumnName}LookupId`] = Number(fieldsPayload.proyectoId);
         }
-        if (payload.tipoDocumentoProyectoId !== undefined) {
-          lookupFields[`${tipoDocumentoColumnName}LookupId`] = Number(payload.tipoDocumentoProyectoId);
+        if (fieldsPayload.tipoDocumentoProyectoId !== undefined) {
+          lookupFields[`${tipoDocumentoColumnName}LookupId`] = Number(fieldsPayload.tipoDocumentoProyectoId);
         }
 
-        await client
-          .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
-          .patch(lookupFields);
+        if (Object.keys(lookupFields).length > 0) {
+          await client
+            .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
+            .patch(lookupFields);
+        }
       }
 
-      return { id, ...payload } as DocumentoProyecto;
+      let archivoAdjuntoActualizado: { nombre: string; url: string; tipo: string } | undefined;
+      if (archivo) {
+        const currentAttachments = await getListItemAttachments(LISTS.FCT_DOCUMENTOS_PROY, id);
+        for (const att of currentAttachments) {
+          await deleteListItemAttachment(LISTS.FCT_DOCUMENTOS_PROY, id, att.nombre);
+        }
+        archivoAdjuntoActualizado = await uploadListItemAttachment(LISTS.FCT_DOCUMENTOS_PROY, id, archivo);
+      }
+
+      return {
+        id,
+        ...fieldsPayload,
+        ...(archivoAdjuntoActualizado ? { archivoAdjunto: archivoAdjuntoActualizado } : {}),
+      } as DocumentoProyecto;
     } catch (error) {
       console.error("Error al actualizar documento de proyecto:", error);
       throw error;
@@ -2534,7 +2779,7 @@ export const hitosPagoProyectoService = {
     const proyectoLookupId = Number(input.proyectoId);
 
     if (Number.isNaN(proyectoLookupId)) {
-      throw new Error("ID de proyecto inválido para crear hito");
+      throw new Error("ID de proyecto invÃ¡lido para crear hito");
     }
 
     try {
@@ -2554,11 +2799,14 @@ export const hitosPagoProyectoService = {
           },
         });
 
-      await client
-        .api(`/sites/${siteId}/lists/${listId}/items/${response.id}/fields`)
-        .patch({
-          [`${proyectoColumnName}LookupId`]: proyectoLookupId,
-        });
+      await ensureProyectoLookupSaved({
+        client,
+        siteId,
+        listId,
+        itemId: response.id,
+        proyectoColumnName,
+        proyectoLookupId,
+      });
 
       return {
         id: response.id,
@@ -2602,12 +2850,19 @@ export const hitosPagoProyectoService = {
         .patch(fields);
 
       if (payload.proyectoId !== undefined) {
+        const proyectoLookupId = Number(payload.proyectoId);
+        if (Number.isNaN(proyectoLookupId)) {
+          throw new Error("ID de proyecto inválido para actualizar hito");
+        }
         const proyectoColumnName = await getColumnInternalName(listId, "PROYECTO");
-        await client
-          .api(`/sites/${siteId}/lists/${listId}/items/${id}/fields`)
-          .patch({
-            [`${proyectoColumnName}LookupId`]: Number(payload.proyectoId),
-          });
+        await ensureProyectoLookupSaved({
+          client,
+          siteId,
+          listId,
+          itemId: id,
+          proyectoColumnName,
+          proyectoLookupId,
+        });
       }
 
       return { id, ...payload } as HitoPagoProyecto;
@@ -2731,7 +2986,7 @@ export const controlPagosSchemaService = {
     const documentosListId = await ensureList(LISTS.FCT_DOCUMENTOS_PROY);
     const hitosListId = await ensureList(LISTS.FCT_HITOS_PAGO_PROY);
 
-    // 2) Extensión de PROYECTOS
+    // 2) ExtensiÃ³n de PROYECTOS
     await ensureColumn(proyectosListId, "COD_PROYECTO", { text: {} });
     await ensureColumn(proyectosListId, "MONTO_TOTAL_PROY", {
       number: { decimalPlaces: "automatic", displayAs: "number" },
@@ -2779,7 +3034,7 @@ export const controlPagosSchemaService = {
     await ensureColumn(hitosListId, "OBSERVACION", { text: { allowMultipleLines: true } });
     await ensureLookupColumn(hitosListId, "PROYECTO", proyectosListId, "NOM_PROYECTO");
 
-    // 6) Seed catálogo
+    // 6) Seed catÃ¡logo
     await tiposDocumentoProyectoService.seedDefaults();
 
     clearListIdsCache();
@@ -2835,3 +3090,7 @@ export const archivosService = {
     }
   },
 };
+
+
+
+

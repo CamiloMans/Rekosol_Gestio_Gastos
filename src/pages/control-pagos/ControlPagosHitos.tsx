@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useHitosPagoProyecto, useProyectos } from "@/hooks/useSharePoint";
+import { formatDateOnly } from "@/lib/date-format";
 import type { HitoPagoProyecto, MonedaProyecto } from "@/services/sharepointService";
 import { toast } from "@/hooks/use-toast";
 import { Pencil, Search, Trash2 } from "lucide-react";
@@ -30,7 +31,7 @@ const initialForm: HitoFormState = {
   proyectoId: "",
   montoHito: "",
   moneda: "CLP",
-  fechaCompromiso: new Date().toISOString().split("T")[0],
+  fechaCompromiso: "",
   fechaPago: "",
   facturado: false,
   pagado: false,
@@ -73,21 +74,43 @@ export default function ControlPagosHitos() {
     return map;
   }, [proyectos]);
 
+  const projectByCode = useMemo(() => {
+    const map = new Map<string, { nombre: string; id: string }>();
+    proyectos.forEach((project) => {
+      const code = (project.codigoProyecto || "").trim().toUpperCase();
+      if (code) {
+        map.set(code, { nombre: project.nombre, id: String(project.id) });
+      }
+    });
+    return map;
+  }, [proyectos]);
+
+  const resolveProjectName = (item: Pick<HitoPagoProyecto, "proyectoId" | "codigoProyecto">) => {
+    const byId = projectMap.get(String(item.proyectoId))?.nombre;
+    if (byId) return byId;
+
+    const code = (item.codigoProyecto || item.proyectoId || "").trim().toUpperCase();
+    const byCode = code ? projectByCode.get(code)?.nombre : undefined;
+    if (byCode) return byCode;
+
+    return item.codigoProyecto || "-";
+  };
+
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
     return hitosPagoProyecto
       .filter((item) => {
         if (projectFilter !== "all" && String(item.proyectoId) !== String(projectFilter)) return false;
         if (!query) return true;
-        const projectInfo = projectMap.get(String(item.proyectoId));
+        const projectName = resolveProjectName(item);
         return (
           String(item.nroHito).includes(query) ||
           (item.codigoProyecto || "").toLowerCase().includes(query) ||
-          (projectInfo?.nombre || "").toLowerCase().includes(query)
+          projectName.toLowerCase().includes(query)
         );
       })
       .sort((a, b) => a.nroHito - b.nroHito);
-  }, [hitosPagoProyecto, search, projectFilter, projectMap]);
+  }, [hitosPagoProyecto, search, projectFilter, projectMap, projectByCode]);
 
   const resetForm = () => {
     setForm(initialForm);
@@ -105,7 +128,7 @@ export default function ControlPagosHitos() {
       proyectoId: String(item.proyectoId),
       montoHito: String(item.montoHito),
       moneda: item.moneda,
-      fechaCompromiso: item.fechaCompromiso || new Date().toISOString().split("T")[0],
+      fechaCompromiso: item.fechaCompromiso || "",
       fechaPago: item.fechaPago || "",
       facturado: item.facturado,
       pagado: item.pagado,
@@ -243,7 +266,7 @@ export default function ControlPagosHitos() {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
-              <TableHead>COD_PROYECTO</TableHead>
+              <TableHead>PROYECTO</TableHead>
               <TableHead>NRO_HITO</TableHead>
               <TableHead>MONTO_HITO</TableHead>
               <TableHead>MONEDA</TableHead>
@@ -257,12 +280,12 @@ export default function ControlPagosHitos() {
           <TableBody>
             {filtered.map((item) => (
               <TableRow key={item.id}>
-                <TableCell className="font-mono">{item.codigoProyecto || "-"}</TableCell>
+                <TableCell>{resolveProjectName(item)}</TableCell>
                 <TableCell>{item.nroHito}</TableCell>
                 <TableCell>{formatAmount(item.montoHito, item.moneda)}</TableCell>
                 <TableCell>{item.moneda}</TableCell>
-                <TableCell>{item.fechaCompromiso || "-"}</TableCell>
-                <TableCell>{item.fechaPago || "-"}</TableCell>
+                <TableCell>{formatDateOnly(item.fechaCompromiso)}</TableCell>
+                <TableCell>{formatDateOnly(item.fechaPago)}</TableCell>
                 <TableCell>{statusTag(item.facturado)}</TableCell>
                 <TableCell>{statusTag(item.pagado)}</TableCell>
                 <TableCell>

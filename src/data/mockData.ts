@@ -40,6 +40,7 @@ export interface Gasto {
   detalle?: string;
   proyectoId?: string;
   colaboradorId?: string;
+  colaboradorNombre?: string;
   comentarioTipoDocumento?: string;
   archivosAdjuntos?: Array<{ nombre: string; url: string; tipo: string }>;
 }

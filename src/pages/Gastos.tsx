@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { CategoryBadge } from '@/components/CategoryBadge';
@@ -8,19 +8,19 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from '@/components/ui/pagination';
 import { Search, Filter, Pencil, Trash2, FileText, Paperclip, MessageSquare } from 'lucide-react';
 import { DocumentoViewer } from '@/components/DocumentoViewer';
 import { DetalleGastoDialog } from '@/components/DetalleGastoDialog';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { useGastos, useEmpresas, useColaboradores, useSharePointAuth, useTiposDocumento, useProyectos, useCategorias } from '@/hooks/useSharePoint';
+import { useGastosPaginados, useEmpresas, useColaboradores, useSharePointAuth, useTiposDocumento, useProyectos, useCategorias } from '@/hooks/useSharePoint';
 import { toast } from '@/hooks/use-toast';
 import { gastosService } from '@/services/sharepointService';
 
 export default function Gastos() {
-  const { isAuthenticated, isLoading: authLoading } = useSharePointAuth();
+  const { isAuthenticated, isLoading: authLoading, account } = useSharePointAuth();
   
   // Los hooks siempre deben llamarse, pero pueden retornar valores vacíos si no está autenticado
-  const gastosHook = useGastos();
   
   // TEMPORAL: Revisar el item 14 con attachments para ver cómo se almacenan
   useEffect(() => {
@@ -37,9 +37,6 @@ export default function Gastos() {
   const categoriasHook = useCategorias();
   
   // Extraer valores de forma segura
-  const gastosSharePoint = gastosHook.gastos || [];
-  const loadingGastos = gastosHook.loading || false;
-  const errorGastos = gastosHook.error || null;
   const empresasSharePoint = empresasHook.empresas || [];
   const loadingEmpresas = empresasHook.loading || false;
   const tiposDocumentoSharePoint = tiposDocumentoHook.tiposDocumento || [];
@@ -48,6 +45,26 @@ export default function Gastos() {
   const errorColaboradores = colaboradoresHook.error || null;
   const proyectosSharePoint = proyectosHook.proyectos || [];
   const categoriasSharePoint = categoriasHook.categorias || [];
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingGasto, setEditingGasto] = useState<Gasto | undefined>();
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterCategoria, setFilterCategoria] = useState('all');
+  const [filterEmpresa, setFilterEmpresa] = useState('all');
+  const [filterTipoDoc, setFilterTipoDoc] = useState('all');
+  const [filterColaborador, setFilterColaborador] = useState('all');
+  const [filterProyecto, setFilterProyecto] = useState('all');
+  const [filterMes, setFilterMes] = useState('all');
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
+  const [documentoViewerOpen, setDocumentoViewerOpen] = useState(false);
+  const [documentoSeleccionado, setDocumentoSeleccionado] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
+  const [detalleGastoOpen, setDetalleGastoOpen] = useState(false);
+  const [gastoSeleccionado, setGastoSeleccionado] = useState<Gasto | undefined>();
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [gastoAEliminar, setGastoAEliminar] = useState<string | null>(null);
+  const [confirmTitle, setConfirmTitle] = useState('');
+  const [confirmDescription, setConfirmDescription] = useState('');
+  const [currentPageLocal, setCurrentPageLocal] = useState(1);
   
   // Crear un mapeo de ID a nombre para tipos de documento
   const tiposDocumentoMap = useMemo(() => {
@@ -79,10 +96,95 @@ export default function Gastos() {
   
   // Usar datos de SharePoint si está autenticado y no está cargando, sino usar datos mock
   // Asegurar que siempre sean arrays para evitar errores
-  const gastos = (isAuthenticated && !authLoading && !loadingGastos) ? gastosSharePoint : gastosData;
+  const PAGE_SIZE = 50;
   const empresasData = (isAuthenticated && !authLoading && !loadingEmpresas) ? empresasSharePoint : empresasDataMock;
   const colaboradoresData = (isAuthenticated && !authLoading) ? colaboradoresSharePoint : colaboradoresDataMock;
   const proyectosData = (isAuthenticated && !authLoading) ? proyectosSharePoint : [];
+
+  const gastoCumpleFiltros = useCallback((gasto: Gasto) => {
+    const empresa = empresasData?.find(e => e.id === gasto.empresaId);
+
+    // Asegurar que numeroDocumento sea string antes de usar includes
+    const numeroDocStr = gasto.numeroDocumento ? String(gasto.numeroDocumento) : '';
+
+    const matchesSearch =
+      empresa?.razonSocial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      numeroDocStr.includes(searchTerm) ||
+      gasto.detalle?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const matchesCategoria = filterCategoria === 'all' || gasto.categoria === filterCategoria;
+    const matchesEmpresa = filterEmpresa === 'all' || gasto.empresaId === filterEmpresa;
+    const matchesTipoDoc = filterTipoDoc === 'all' || gasto.tipoDocumento === filterTipoDoc;
+    const matchesColaborador = filterColaborador === 'all' || String(gasto.colaboradorId || '') === String(filterColaborador);
+    const matchesProyecto = filterProyecto === 'all' || String(gasto.proyectoId || '') === String(filterProyecto);
+
+    // Filtrar por mes
+    let matchesMes = true;
+    if (filterMes !== 'all' && gasto.fecha) {
+      try {
+        const fechaGasto = new Date(gasto.fecha);
+        if (!isNaN(fechaGasto.getTime())) {
+          const mesGasto = `${fechaGasto.getFullYear()}-${String(fechaGasto.getMonth() + 1).padStart(2, '0')}`;
+          matchesMes = mesGasto === filterMes;
+        }
+      } catch (e) {
+        // Si hay error al parsear la fecha, no filtrar por mes
+        matchesMes = true;
+      }
+    }
+
+    return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesColaborador && matchesProyecto && matchesMes;
+  }, [empresasData, searchTerm, filterCategoria, filterEmpresa, filterTipoDoc, filterColaborador, filterProyecto, filterMes]);
+
+  const filtroPaginacionKey = useMemo(() => JSON.stringify({
+    searchTerm: searchTerm.toLowerCase(),
+    filterCategoria,
+    filterEmpresa,
+    filterTipoDoc,
+    filterColaborador,
+    filterProyecto,
+    filterMes,
+    empresasCount: empresasData.length,
+  }), [searchTerm, filterCategoria, filterEmpresa, filterTipoDoc, filterColaborador, filterProyecto, filterMes, empresasData.length]);
+
+  const gastosPaginadosHook = useGastosPaginados({
+    pageSize: PAGE_SIZE,
+    includeAttachments: true,
+    filterFn: gastoCumpleFiltros,
+    filterKey: filtroPaginacionKey,
+  });
+
+  const gastosSharePoint = gastosPaginadosHook.loadedItems || [];
+  const loadingGastos = gastosPaginadosHook.loading || false;
+  const errorGastos = gastosPaginadosHook.error || null;
+  const gastos = (isAuthenticated && !authLoading) ? gastosSharePoint : gastosData;
+
+  const nombreRegistradorActual = useMemo(() => {
+    const correoUsuarioLogueado = account?.username?.toLowerCase().trim() || '';
+    if (!correoUsuarioLogueado) return '';
+
+    const colaborador = colaboradoresData.find(
+      (item) => (item.email || '').toLowerCase().trim() === correoUsuarioLogueado
+    );
+
+    // Priorizar el valor visible del lookup PERSONA (NOMBRE) proveniente de REGISTRO_GASTOS
+    if (colaborador?.id) {
+      const gastoConPersona = gastos.find(
+        (item) => String(item.colaboradorId || '') === String(colaborador.id) && !!item.colaboradorNombre
+      );
+
+      if (gastoConPersona?.colaboradorNombre) {
+        return gastoConPersona.colaboradorNombre;
+      }
+    }
+
+    // Fallback: nombre desde lista COLABORADORES
+    if (colaborador?.nombre) {
+      return colaborador.nombre;
+    }
+
+    return account?.name || '';
+  }, [account, colaboradoresData, gastos]);
   
   // Ordenar empresas alfabéticamente
   const empresasOrdenadas = useMemo(() => {
@@ -113,25 +215,6 @@ export default function Gastos() {
     return categorias;
   }, [isAuthenticated, authLoading, categoriasSharePoint]);
   
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingGasto, setEditingGasto] = useState<Gasto | undefined>();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterCategoria, setFilterCategoria] = useState('all');
-  const [filterEmpresa, setFilterEmpresa] = useState('all');
-  const [filterTipoDoc, setFilterTipoDoc] = useState('all');
-  const [filterColaborador, setFilterColaborador] = useState('all');
-  const [filterProyecto, setFilterProyecto] = useState('all');
-  const [filterMes, setFilterMes] = useState('all');
-  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false);
-  const [documentoViewerOpen, setDocumentoViewerOpen] = useState(false);
-  const [documentoSeleccionado, setDocumentoSeleccionado] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
-  const [detalleGastoOpen, setDetalleGastoOpen] = useState(false);
-  const [gastoSeleccionado, setGastoSeleccionado] = useState<Gasto | undefined>();
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [gastoAEliminar, setGastoAEliminar] = useState<string | null>(null);
-  const [confirmTitle, setConfirmTitle] = useState('');
-  const [confirmDescription, setConfirmDescription] = useState('');
-
   // Mostrar errores
   useEffect(() => {
     if (errorGastos) {
@@ -153,44 +236,12 @@ export default function Gastos() {
     }
   }, [errorColaboradores]);
 
-  const filteredGastos = useMemo(() => {
-    if (!gastos || gastos.length === 0) return [];
-    
-    return gastos
-      .filter((gasto) => {
-        const empresa = empresasData?.find(e => e.id === gasto.empresaId);
-        
-        // Asegurar que numeroDocumento sea string antes de usar includes
-        const numeroDocStr = gasto.numeroDocumento ? String(gasto.numeroDocumento) : '';
-        
-        const matchesSearch = 
-          empresa?.razonSocial?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          numeroDocStr.includes(searchTerm) ||
-          gasto.detalle?.toLowerCase().includes(searchTerm.toLowerCase());
-        
-        const matchesCategoria = filterCategoria === 'all' || gasto.categoria === filterCategoria;
-        const matchesEmpresa = filterEmpresa === 'all' || gasto.empresaId === filterEmpresa;
-        const matchesTipoDoc = filterTipoDoc === 'all' || gasto.tipoDocumento === filterTipoDoc;
-        const matchesColaborador = filterColaborador === 'all' || String(gasto.colaboradorId || '') === String(filterColaborador);
-        const matchesProyecto = filterProyecto === 'all' || String(gasto.proyectoId || '') === String(filterProyecto);
-        
-        // Filtrar por mes
-        let matchesMes = true;
-        if (filterMes !== 'all' && gasto.fecha) {
-          try {
-            const fechaGasto = new Date(gasto.fecha);
-            if (!isNaN(fechaGasto.getTime())) {
-              const mesGasto = `${fechaGasto.getFullYear()}-${String(fechaGasto.getMonth() + 1).padStart(2, '0')}`;
-              matchesMes = mesGasto === filterMes;
-            }
-          } catch (e) {
-            // Si hay error al parsear la fecha, no filtrar por mes
-            matchesMes = true;
-          }
-        }
+  const filteredGastosSharePoint = gastosPaginadosHook.filteredItems || [];
+  const pagedGastosSharePoint = gastosPaginadosHook.pageItems || [];
 
-        return matchesSearch && matchesCategoria && matchesEmpresa && matchesTipoDoc && matchesColaborador && matchesProyecto && matchesMes;
-      })
+  const filteredGastosLocal = useMemo(() => {
+    return gastosData
+      .filter(gastoCumpleFiltros)
       .sort((a, b) => {
         const fechaA = new Date(a.fecha || "").getTime();
         const fechaB = new Date(b.fecha || "").getTime();
@@ -198,28 +249,55 @@ export default function Gastos() {
         const safeFechaB = Number.isNaN(fechaB) ? 0 : fechaB;
         return safeFechaB - safeFechaA;
       });
-  }, [gastos, empresasData, searchTerm, filterCategoria, filterEmpresa, filterTipoDoc, filterColaborador, filterProyecto, filterMes]);
+  }, [gastoCumpleFiltros]);
 
-  // Obtener meses únicos de los gastos para el filtro
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setCurrentPageLocal(1);
+    }
+  }, [filtroPaginacionKey, isAuthenticated]);
+
+  const pagedGastosLocal = useMemo(() => {
+    const pageStart = (currentPageLocal - 1) * PAGE_SIZE;
+    return filteredGastosLocal.slice(pageStart, pageStart + PAGE_SIZE);
+  }, [currentPageLocal, filteredGastosLocal, PAGE_SIZE]);
+
+  const filteredGastos = isAuthenticated ? filteredGastosSharePoint : filteredGastosLocal;
+  const gastosPagina = isAuthenticated ? pagedGastosSharePoint : pagedGastosLocal;
+  const currentPage = isAuthenticated ? gastosPaginadosHook.currentPage : currentPageLocal;
+  const hasPreviousPage = currentPage > 1;
+  const hasNextPage = isAuthenticated
+    ? gastosPaginadosHook.hasNextPage
+    : (currentPage * PAGE_SIZE) < filteredGastosLocal.length;
+  const cantidadGastosTexto = isAuthenticated && hasNextPage
+    ? `${filteredGastos.length}+`
+    : `${filteredGastos.length}`;
+
+  // Mostrar meses desde el mes actual hacia atras hasta enero de 2026
   const mesesDisponibles = useMemo(() => {
-    if (!gastos || gastos.length === 0) return [];
-    
-    const mesesSet = new Set<string>();
-    gastos.forEach(gasto => {
-      if (gasto.fecha) {
-      const fecha = new Date(gasto.fecha);
-      const mesKey = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}`;
-      const mesLabel = fecha.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
-      mesesSet.add(`${mesKey}|${mesLabel}`);
-      }
-    });
-    return Array.from(mesesSet)
-      .map(m => {
-        const [key, label] = m.split('|');
-        return { key, label: label.charAt(0).toUpperCase() + label.slice(1) };
-      })
-      .sort((a, b) => b.key.localeCompare(a.key)); // Ordenar de más reciente a más antiguo
-  }, [gastos]);
+    const START_YEAR = 2026;
+    const inicioRango = new Date(START_YEAR, 0, 1);
+    const cursor = new Date();
+    cursor.setDate(1);
+
+    if (cursor < inicioRango) return [];
+
+    const meses: { key: string; label: string }[] = [];
+
+    while (cursor >= inicioRango) {
+      const mesKey = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`;
+      const mesLabel = cursor.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' });
+
+      meses.push({
+        key: mesKey,
+        label: mesLabel.charAt(0).toUpperCase() + mesLabel.slice(1),
+      });
+
+      cursor.setMonth(cursor.getMonth() - 1);
+    }
+
+    return meses;
+  }, []);
 
   // Ordenar proyectos alfabéticamente
   const proyectosOrdenados = useMemo(() => {
@@ -232,7 +310,7 @@ export default function Gastos() {
     try {
     if (editingGasto) {
         if (isAuthenticated && !authLoading) {
-          await gastosHook.updateGasto(editingGasto.id, newGasto);
+          await gastosPaginadosHook.updateGasto(editingGasto.id, newGasto);
           toast({
             title: "Gasto actualizado",
             description: "El gasto se ha actualizado correctamente en SharePoint",
@@ -247,7 +325,7 @@ export default function Gastos() {
         }
       } else {
         if (isAuthenticated && !authLoading) {
-          await gastosHook.createGasto(newGasto);
+          await gastosPaginadosHook.createGasto(newGasto);
           toast({
             title: "Gasto guardado",
             description: "El gasto se ha guardado correctamente en SharePoint",
@@ -331,7 +409,7 @@ export default function Gastos() {
     console.log("🔥 Ejecutando eliminación para:", nombreEmpresa);
     
     try {
-      await gastosHook.deleteGasto(gastoAEliminar);
+      await gastosPaginadosHook.deleteGasto(gastoAEliminar);
       console.log("✅ Gasto eliminado exitosamente");
       toast({
         title: "Gasto eliminado",
@@ -358,7 +436,7 @@ export default function Gastos() {
         subtitle={
           loadingGastos 
             ? "Cargando gastos..." 
-            : `${filteredGastos.length} gastos encontrados`
+            : `${cantidadGastosTexto} gastos encontrados`
         }
         action={{ label: 'Nuevo Gasto', onClick: () => setModalOpen(true) }}
       />
@@ -501,7 +579,7 @@ export default function Gastos() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredGastos.map((gasto) => {
+              gastosPagina.map((gasto) => {
                 const empresa = empresasData?.find(e => e.id === gasto.empresaId);
               const colaborador = gasto.colaboradorId ? colaboradoresData.find(c => c.id === gasto.colaboradorId) : null;
               return (
@@ -614,6 +692,58 @@ export default function Gastos() {
         </div>
       </div>
 
+      {filteredGastos.length > 0 && (
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            Página {currentPage} · Mostrando {gastosPagina.length} de {cantidadGastosTexto} gastos
+          </p>
+
+          <Pagination className="mx-0 w-auto justify-start sm:justify-end">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  className={!hasPreviousPage || loadingGastos ? "pointer-events-none opacity-50" : ""}
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    if (!hasPreviousPage || loadingGastos) return;
+
+                    if (isAuthenticated) {
+                      await gastosPaginadosHook.goToPreviousPage();
+                    } else {
+                      setCurrentPageLocal((prev) => Math.max(1, prev - 1));
+                    }
+                  }}
+                />
+              </PaginationItem>
+
+              <PaginationItem>
+                <PaginationLink href="#" size="default" isActive onClick={(e) => e.preventDefault()}>
+                  Página {currentPage}
+                </PaginationLink>
+              </PaginationItem>
+
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  className={!hasNextPage || loadingGastos ? "pointer-events-none opacity-50" : ""}
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    if (!hasNextPage || loadingGastos) return;
+
+                    if (isAuthenticated) {
+                      await gastosPaginadosHook.goToNextPage();
+                    } else {
+                      setCurrentPageLocal((prev) => prev + 1);
+                    }
+                  }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
+
       <GastoModal
         open={modalOpen}
         onClose={() => {
@@ -622,6 +752,7 @@ export default function Gastos() {
         }}
         onSave={handleSaveGasto}
         gasto={editingGasto}
+        nombreRegistrador={nombreRegistradorActual}
       />
 
       <DocumentoViewer

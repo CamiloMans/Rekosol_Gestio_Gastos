@@ -100,15 +100,6 @@ export default function ControlPagosProyectos() {
   };
 
   const openDocumentosModal = (proyecto: Proyecto, mode: "view" | "create") => {
-    if (mode === "create" && !proyecto.codigoProyecto) {
-      toast({
-        title: "Proyecto invalido",
-        description: "Debes asignar COD_PROYECTO antes de agregar documentos.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setDocumentosProyectoSeleccionado(proyecto);
     setDocumentosModalMode(mode);
     setDocumentosModalOpen(true);
@@ -146,7 +137,6 @@ export default function ControlPagosProyectos() {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/50">
-              <TableHead>COD PROYECTO</TableHead>
               <TableHead>PROYECTO</TableHead>
               <TableHead>MONTO TOTAL PROY</TableHead>
               <TableHead>MONEDA BASE</TableHead>
@@ -157,7 +147,6 @@ export default function ControlPagosProyectos() {
           <TableBody>
             {filtered.map((item) => (
               <TableRow key={item.id}>
-                <TableCell className="font-mono">{item.codigoProyecto || "-"}</TableCell>
                 <TableCell>{item.nombre}</TableCell>
                 <TableCell>{formatAmount(item.montoTotalProyecto, item.monedaBase || "CLP")}</TableCell>
                 <TableCell>{item.monedaBase || "-"}</TableCell>
@@ -197,7 +186,7 @@ export default function ControlPagosProyectos() {
             ))}
             {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
                   No hay proyectos para mostrar.
                 </TableCell>
               </TableRow>

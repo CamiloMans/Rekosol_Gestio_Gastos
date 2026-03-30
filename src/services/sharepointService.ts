@@ -1607,12 +1607,12 @@ function normalizeProjectCode(code?: string): string {
 }
 
 async function ensureUniqueProjectCode(
-  code: string,
+  code?: string,
   excludeProjectId?: string,
 ): Promise<void> {
   const normalizedCode = normalizeProjectCode(code);
   if (!normalizedCode) {
-    throw new Error("El código de proyecto es obligatorio");
+    return;
   }
 
   const proyectos = await proyectosService.getAll();
@@ -1658,14 +1658,18 @@ export const proyectosService = {
     const listId = await getListId(LISTS.PROYECTOS);
     
     try {
-      await ensureUniqueProjectCode(proyecto.codigoProyecto);
+      const normalizedProjectCode = normalizeProjectCode(proyecto.codigoProyecto);
+      await ensureUniqueProjectCode(normalizedProjectCode);
 
       // Mapeo usando el nombre real de la columna en SharePoint: NOM_PROYECTO
       const fields: any = {
         Title: proyecto.nombre,
         NOM_PROYECTO: proyecto.nombre,
-        COD_PROYECTO: normalizeProjectCode(proyecto.codigoProyecto),
       };
+
+      if (normalizedProjectCode) {
+        fields.COD_PROYECTO = normalizedProjectCode;
+      }
 
       if (proyecto.montoTotalProyecto !== undefined && proyecto.montoTotalProyecto !== null) {
         fields.MONTO_TOTAL_PROY = Number(proyecto.montoTotalProyecto);
@@ -1684,7 +1688,7 @@ export const proyectosService = {
       return {
         id: response.id,
         ...proyecto,
-        codigoProyecto: normalizeProjectCode(proyecto.codigoProyecto),
+        codigoProyecto: normalizedProjectCode || undefined,
         createdAt: new Date().toISOString().split("T")[0],
       };
     } catch (error) {

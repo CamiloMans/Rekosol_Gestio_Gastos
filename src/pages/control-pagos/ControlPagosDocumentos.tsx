@@ -134,10 +134,10 @@ export default function ControlPagosDocumentos() {
     e.preventDefault();
     const selectedProject = proyectos.find((item) => String(item.id) === String(form.proyectoId));
 
-    if (!selectedProject?.codigoProyecto) {
+    if (!selectedProject?.id) {
       toast({
         title: "Proyecto inválido",
-        description: "Debes seleccionar un proyecto con COD_PROYECTO.",
+        description: "Debes seleccionar un proyecto valido.",
         variant: "destructive",
       });
       return;
@@ -147,7 +147,7 @@ export default function ControlPagosDocumentos() {
       if (editingDocumento) {
         await updateDocumentoProyecto(editingDocumento.id, {
           proyectoId: form.proyectoId,
-          codigoProyecto: selectedProject.codigoProyecto,
+          codigoProyecto: "",
           tipoDocumentoProyectoId: form.tipoDocumentoProyectoId,
           fechaDocumento: form.fechaDocumento,
           nroReferencia: form.nroReferencia,
@@ -170,7 +170,7 @@ export default function ControlPagosDocumentos() {
 
         await createDocumentoProyecto({
           proyectoId: form.proyectoId,
-          codigoProyecto: selectedProject.codigoProyecto,
+          codigoProyecto: "",
           tipoDocumentoProyectoId: form.tipoDocumentoProyectoId,
           fechaDocumento: form.fechaDocumento,
           nroReferencia: form.nroReferencia,
@@ -452,5 +452,4 @@ export default function ControlPagosDocumentos() {
     </Layout>
   );
 }
-
 

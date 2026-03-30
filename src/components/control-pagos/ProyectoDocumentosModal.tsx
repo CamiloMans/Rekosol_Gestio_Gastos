@@ -121,13 +121,6 @@ export function ProyectoDocumentosModal({
 
   const getFilters = () => {
     if (!proyecto) return undefined;
-    if (proyecto.codigoProyecto) {
-      return {
-        proyectoId: String(proyecto.id),
-        codigoProyecto: proyecto.codigoProyecto,
-      };
-    }
-
     return {
       proyectoId: String(proyecto.id),
     };
@@ -153,15 +146,15 @@ export function ProyectoDocumentosModal({
     resetForm();
     loadCurrentProjectDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialMode, proyecto?.id, proyecto?.codigoProyecto]);
+  }, [open, initialMode, proyecto?.id]);
 
   const handleQuickCreate = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    if (!proyecto?.codigoProyecto) {
+    if (!proyecto?.id) {
       toast({
         title: "Proyecto invalido",
-        description: "Debes asignar COD_PROYECTO antes de agregar documentos.",
+        description: "No se pudo identificar el proyecto seleccionado.",
         variant: "destructive",
       });
       return;
@@ -218,7 +211,7 @@ export function ProyectoDocumentosModal({
       if (editingDocumentoId) {
         await updateDocumentoProyecto(editingDocumentoId, {
           proyectoId: String(proyecto.id),
-          codigoProyecto: proyecto.codigoProyecto,
+          codigoProyecto: "",
           tipoDocumentoProyectoId,
           fechaDocumento: fechaDocumentoIso,
           nroReferencia: nroReferencia.trim(),
@@ -233,7 +226,7 @@ export function ProyectoDocumentosModal({
       } else {
         await createDocumentoProyecto({
           proyectoId: String(proyecto.id),
-          codigoProyecto: proyecto.codigoProyecto,
+          codigoProyecto: "",
           tipoDocumentoProyectoId,
           fechaDocumento: fechaDocumentoIso,
           nroReferencia: nroReferencia.trim(),
@@ -283,11 +276,7 @@ export function ProyectoDocumentosModal({
     }
   };
 
-  const projectLabel = proyecto
-    ? proyecto.codigoProyecto
-      ? `${proyecto.codigoProyecto} - ${proyecto.nombre}`
-      : proyecto.nombre
-    : "";
+  const projectLabel = proyecto?.nombre || "";
 
   return (
     <>
@@ -319,7 +308,6 @@ export function ProyectoDocumentosModal({
                   resetForm();
                   setMode("create");
                 }}
-                disabled={!proyecto?.codigoProyecto}
               >
                 <Plus size={14} className="mr-2" />
                 Agregar
@@ -506,7 +494,7 @@ export function ProyectoDocumentosModal({
                 >
                   Volver
                 </Button>
-                <Button type="submit" disabled={saving || !proyecto?.codigoProyecto}>
+                <Button type="submit" disabled={saving}>
                   {saving ? "Guardando..." : editingDocumentoId ? "Guardar cambios" : "Guardar documento"}
                 </Button>
               </div>

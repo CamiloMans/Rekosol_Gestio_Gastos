@@ -16,14 +16,12 @@ interface ProyectoModalProps {
 
 export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModalProps) {
   const [nombre, setNombre] = useState('');
-  const [codigoProyecto, setCodigoProyecto] = useState('');
   const [montoTotalProyecto, setMontoTotalProyecto] = useState('');
   const [monedaBase, setMonedaBase] = useState<'CLP' | 'UF' | 'USD'>('CLP');
 
   useEffect(() => {
     if (proyecto) {
       setNombre(proyecto.nombre ? proyecto.nombre.toUpperCase() : '');
-      setCodigoProyecto(proyecto.codigoProyecto ? proyecto.codigoProyecto.toUpperCase() : '');
       setMontoTotalProyecto(
         proyecto.montoTotalProyecto !== undefined && proyecto.montoTotalProyecto !== null
           ? String(proyecto.montoTotalProyecto)
@@ -32,7 +30,6 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
       setMonedaBase(proyecto.monedaBase || 'CLP');
     } else {
       setNombre('');
-      setCodigoProyecto('');
       setMontoTotalProyecto('');
       setMonedaBase('CLP');
     }
@@ -42,7 +39,6 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
     e.preventDefault();
     onSave({
       nombre: nombre.trim().toUpperCase(),
-      codigoProyecto: codigoProyecto.trim().toUpperCase(),
       montoTotalProyecto: montoTotalProyecto ? Number(montoTotalProyecto) : undefined,
       monedaBase,
     });
@@ -70,17 +66,7 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="codigoProyecto">Código de Proyecto</Label>
-            <Input
-              id="codigoProyecto"
-              placeholder="Ej: PRJ-001"
-              value={codigoProyecto}
-              onChange={(e) => setCodigoProyecto(e.target.value.toUpperCase())}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="montoTotalProyecto">Monto Total del Proyecto *</Label>
+            <Label htmlFor="montoTotalProyecto">Monto Total del Proyecto</Label>
             <Input
               id="montoTotalProyecto"
               type="number"
@@ -89,7 +75,6 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
               placeholder="0"
               value={montoTotalProyecto}
               onChange={(e) => setMontoTotalProyecto(e.target.value)}
-              required
             />
           </div>
 
@@ -121,21 +106,4 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
     </Dialog>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

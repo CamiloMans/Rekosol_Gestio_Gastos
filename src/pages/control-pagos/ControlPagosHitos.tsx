@@ -97,6 +97,8 @@ export default function ControlPagosHitos() {
   const [selectedHitoForDocumentos, setSelectedHitoForDocumentos] = useState<HitoPagoProyecto | undefined>();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedArchivo, setSelectedArchivo] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
+  const [saving, setSaving] = useState(false);
+  const saveLock = useMemo(() => ({ current: false }), []);
 
   const projectMap = useMemo(() => {
     const map = new Map<string, { nombre: string; codigo?: string }>();
@@ -226,28 +228,33 @@ export default function ControlPagosHitos() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const project = proyectos.find((item) => String(item.id) === String(form.proyectoId));
+    if (saveLock.current) return;
 
-    if (!project) {
-      toast({
-        title: "Proyecto invÃ¡lido",
-        description: "Debes seleccionar un proyecto valido.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const montoHitoValue = parseNumericInput(form.montoHito, { allowDecimal: true, maxDecimals: 2 });
-    if (!Number.isFinite(montoHitoValue) || montoHitoValue <= 0) {
-      toast({
-        title: "Monto invÃ¡lido",
-        description: "El monto del hito debe ser mayor a 0.",
-        variant: "destructive",
-      });
-      return;
-    }
+    saveLock.current = true;
+    setSaving(true);
 
     try {
+      const project = proyectos.find((item) => String(item.id) === String(form.proyectoId));
+
+      if (!project) {
+        toast({
+          title: "Proyecto invÃ¡lido",
+          description: "Debes seleccionar un proyecto valido.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const montoHitoValue = parseNumericInput(form.montoHito, { allowDecimal: true, maxDecimals: 2 });
+      if (!Number.isFinite(montoHitoValue) || montoHitoValue <= 0) {
+        toast({
+          title: "Monto invÃ¡lido",
+          description: "El monto del hito debe ser mayor a 0.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       if (editingHito) {
         await updateHitoPagoProyecto(editingHito.id, {
           proyectoId: form.proyectoId,
@@ -351,6 +358,9 @@ export default function ControlPagosHitos() {
         description: error instanceof Error ? error.message : "No se pudo guardar el hito",
         variant: "destructive",
       });
+    } finally {
+      saveLock.current = false;
+      setSaving(false);
     }
   };
 
@@ -697,10 +707,12 @@ export default function ControlPagosHitos() {
             </div>
 
             <div className="flex justify-end gap-2 border-t pt-4">
-              <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
+              <Button type="button" variant="outline" onClick={() => setModalOpen(false)} disabled={saving}>
                 Cancelar
               </Button>
-              <Button type="submit">Guardar</Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Guardando..." : "Guardar"}
+              </Button>
             </div>
           </form>
         </DialogContent>

@@ -46,6 +46,21 @@ function normalizeObservacion(value: string) {
   return value.toLocaleUpperCase("es-CL");
 }
 
+function toDateInputValue(value?: string) {
+  if (!value) return "";
+
+  const normalized = value.trim();
+  if (!normalized) return "";
+
+  const isoDate = normalized.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoDate?.[1]) return isoDate[1];
+
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  return parsed.toISOString().split("T")[0];
+}
+
 function formatAmount(value: number, moneda: MonedaProyecto) {
   if (moneda === "UF") {
     return `${new Intl.NumberFormat("es-CL", { maximumFractionDigits: 2 }).format(value)} UF`;
@@ -177,8 +192,8 @@ export default function ControlPagosHitos() {
       proyectoId: String(item.proyectoId),
       montoHito: formatNumericInput(String(item.montoHito), { allowDecimal: true, maxDecimals: 2 }),
       moneda: item.moneda,
-      fechaCompromiso: item.fechaCompromiso || "",
-      fechaPago: item.fechaPago || "",
+      fechaCompromiso: toDateInputValue(item.fechaCompromiso),
+      fechaPago: toDateInputValue(item.fechaPago),
       facturado: item.facturado,
       pagado: item.pagado,
       observacion: normalizeObservacion(item.observacion || ""),

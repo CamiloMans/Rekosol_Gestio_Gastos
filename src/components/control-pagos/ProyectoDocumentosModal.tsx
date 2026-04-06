@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useDocumentosProyecto, useTiposDocumentoProyecto } from "@/hooks/useSharePoint";
 import { toast } from "@/hooks/use-toast";
 import { formatDate, type Proyecto } from "@/data/mockData";
-import { Eye, FileText, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react";
+import { Eye, FileText, MessageSquare, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
 
 type ModalMode = "view" | "create";
 
@@ -490,6 +490,7 @@ export function ProyectoDocumentosModal({
                 </div>
 
                 <div className="space-y-2">
+                  <Label htmlFor="archivoDocumento">Archivo *</Label>
                   <input
                     ref={fileInputRef}
                     key={fileInputKey}
@@ -501,19 +502,51 @@ export function ProyectoDocumentosModal({
                       setArchivo(e.target.files?.[0] || null);
                     }}
                   />
-                  <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                    Seleccionar archivo
-                  </Button>
-                  {archivo ? (
-                    <button
+                  <div className="flex gap-2">
+                    <Button
                       type="button"
-                      className="flex w-fit max-w-full items-center gap-2 rounded-md bg-muted px-2 py-1 text-sm hover:bg-muted/80"
-                      onClick={openSelectedFilePreview}
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0"
+                      onClick={() => fileInputRef.current?.click()}
+                      title="Adjuntar documentos"
                     >
-                      <span className="truncate">{archivo.name}</span>
-                    </button>
+                      <Paperclip size={18} />
+                    </Button>
+                  </div>
+                  {archivo ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <div
+                        className="flex cursor-pointer items-center gap-2 rounded-md bg-muted px-2 py-1 text-sm hover:bg-muted/80"
+                        role="button"
+                        tabIndex={0}
+                        onClick={openSelectedFilePreview}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openSelectedFilePreview();
+                          }
+                        }}
+                      >
+                        <span className="truncate">{archivo.name}</span>
+                        <button
+                          type="button"
+                          className="leading-none text-muted-foreground hover:text-foreground"
+                          aria-label="Quitar archivo"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clearLocalPreview();
+                            setSelectedFile(undefined);
+                            setArchivo(null);
+                            setFileInputKey((prev) => prev + 1);
+                          }}
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Ningun archivo seleccionado.</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Ningun archivo seleccionado.</p>
                   )}
                 </div>
               </div>

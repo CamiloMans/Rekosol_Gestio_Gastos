@@ -17,7 +17,7 @@ import { formatDateOnly } from "@/lib/date-format";
 import { formatNumericInput, parseNumericInput } from "@/lib/numeric-input";
 import type { HitoPagoProyecto, MonedaProyecto } from "@/services/sharepointService";
 import { toast } from "@/hooks/use-toast";
-import { FileText, Pencil, Search, Trash2 } from "lucide-react";
+import { FileText, Paperclip, Pencil, Search, Trash2 } from "lucide-react";
 
 interface HitoFormState {
   proyectoId: string;
@@ -726,23 +726,56 @@ export default function ControlPagosHitos() {
                       });
                     }}
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => (document.getElementById(`archivosHito-${index}`) as HTMLInputElement | null)?.click()}
-                  >
-                    Seleccionar archivo
-                  </Button>
-                  {archivo ? (
-                    <button
+                  <div className="flex gap-2">
+                    <Button
                       type="button"
-                      className="flex w-fit max-w-full items-center gap-2 rounded-md bg-muted px-2 py-1 text-sm hover:bg-muted/80"
-                      onClick={() => openLocalFilePreview(archivo)}
+                      variant="outline"
+                      size="icon"
+                      className="h-10 w-10 shrink-0"
+                      title={form.archivos.length > 1 ? `Adjuntar archivo ${index + 1}` : "Adjuntar archivo"}
+                      onClick={() => (document.getElementById(`archivosHito-${index}`) as HTMLInputElement | null)?.click()}
                     >
-                      <span className="truncate">{archivo.name}</span>
-                    </button>
+                      <Paperclip size={18} />
+                    </Button>
+                  </div>
+                  {archivo ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <div
+                        className="flex cursor-pointer items-center gap-2 rounded-md bg-muted px-2 py-1 text-sm hover:bg-muted/80"
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => openLocalFilePreview(archivo)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openLocalFilePreview(archivo);
+                          }
+                        }}
+                      >
+                        <span className="truncate">{archivo.name}</span>
+                        <button
+                          type="button"
+                          className="leading-none text-muted-foreground hover:text-foreground"
+                          aria-label={form.archivos.length > 1 ? `Quitar archivo ${index + 1}` : "Quitar archivo"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            clearLocalPreview();
+                            setSelectedArchivo(undefined);
+                            setForm((prev) => {
+                              const updated = [...prev.archivos];
+                              updated[index] = null;
+                              return { ...prev, archivos: updated };
+                            });
+                            const input = document.getElementById(`archivosHito-${index}`) as HTMLInputElement | null;
+                            if (input) input.value = "";
+                          }}
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    </div>
                   ) : (
-                    <p className="text-xs text-muted-foreground">Ningún archivo seleccionado.</p>
+                    <p className="mt-2 text-xs text-muted-foreground">Ningun archivo seleccionado.</p>
                   )}
                 </div>
               ))}
@@ -750,14 +783,13 @@ export default function ControlPagosHitos() {
               <Button
                 type="button"
                 variant="outline"
+                className="gap-2"
                 onClick={() => setForm((prev) => ({ ...prev, archivos: [...prev.archivos, null] }))}
               >
+                <Paperclip size={16} />
                 Agregar otro archivo
               </Button>
 
-              <p className="text-xs text-muted-foreground">
-                Se creará un registro por cada archivo en FCT_DOCUMENTOS_HITO.
-              </p>
             </div>
 
             <div className="flex justify-end gap-2 border-t pt-4">

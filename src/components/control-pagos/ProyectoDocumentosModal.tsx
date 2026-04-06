@@ -94,6 +94,7 @@ export function ProyectoDocumentosModal({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
 
   const activeTipos = useMemo(() => {
     return [...tiposDocumentoProyecto]
@@ -105,7 +106,15 @@ export function ProyectoDocumentosModal({
     return [...documentosProyecto].sort((a, b) => (a.fechaDocumento || "").localeCompare(b.fechaDocumento || "") * -1);
   }, [documentosProyecto]);
 
+  const clearLocalPreview = () => {
+    if (localPreviewUrl) {
+      URL.revokeObjectURL(localPreviewUrl);
+      setLocalPreviewUrl(null);
+    }
+  };
+
   const resetForm = () => {
+    clearLocalPreview();
     setTipoDocumentoProyectoId("");
     setFechaDocumento(todayIsoDate());
     setNroReferencia("");
@@ -116,6 +125,7 @@ export function ProyectoDocumentosModal({
   };
 
   const openEdit = (item: (typeof documentosProyecto)[number]) => {
+    clearLocalPreview();
     setEditingDocumentoId(item.id);
     setTipoDocumentoProyectoId(String(item.tipoDocumentoProyectoId || ""));
     setFechaDocumento(toDateInputValue(item.fechaDocumento));
@@ -124,6 +134,19 @@ export function ProyectoDocumentosModal({
     setArchivo(null);
     setFileInputKey((prev) => prev + 1);
     setMode("create");
+  };
+
+  const openSelectedFilePreview = () => {
+    if (!archivo) return;
+    clearLocalPreview();
+    const previewUrl = URL.createObjectURL(archivo);
+    setLocalPreviewUrl(previewUrl);
+    setSelectedFile({
+      nombre: archivo.name,
+      url: previewUrl,
+      tipo: archivo.type || "application/octet-stream",
+    });
+    setViewerOpen(true);
   };
 
   const getFilters = () => {
@@ -154,6 +177,14 @@ export function ProyectoDocumentosModal({
     loadCurrentProjectDocs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialMode, proyecto?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl);
+      }
+    };
+  }, [localPreviewUrl]);
 
   const handleQuickCreate = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -459,18 +490,30 @@ export function ProyectoDocumentosModal({
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="archivoDocumento">Archivo {editingDocumentoId ? "(solo para crear)" : "*"}</Label>
                   <input
                     ref={fileInputRef}
                     key={fileInputKey}
                     id="archivoDocumento"
                     type="file"
                     className="hidden"
-                    onChange={(e) => setArchivo(e.target.files?.[0] || null)}
+                    onChange={(e) => {
+                      clearLocalPreview();
+                      setArchivo(e.target.files?.[0] || null);
+                    }}
                   />
-                  <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-                    Seleccionar archivo
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                      Seleccionar archivo
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={openSelectedFilePreview}
+                      disabled={!archivo}
+                    >
+                      Previsualizar
+                    </Button>
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {archivo ? `Archivo seleccionado: ${archivo.name}` : "Ningun archivo seleccionado."}
                   </p>

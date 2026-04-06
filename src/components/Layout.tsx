@@ -33,23 +33,23 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
     controlPagosNavItems.some((item) => item.path === location.pathname)
   );
   const touchStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
-  const SWIPE_THRESHOLD = 50; // Distancia mÃƒÂ­nima para considerar un swipe
+  const SWIPE_THRESHOLD = 50; // Distancia mÒ­nima para considerar un swipe
   const EDGE_THRESHOLD = 30; // Distancia desde el borde izquierdo para activar
-  const SWIPE_TIME_THRESHOLD = 300; // Tiempo mÃƒÂ¡ximo en ms para considerar un swipe
+  const SWIPE_TIME_THRESHOLD = 300; // Tiempo mÒ¡ximo en ms para considerar un swipe
 
   // Detectar swipe desde el borde izquierdo
   useEffect(() => {
     const isMobile = () => window.innerWidth < 1024;
     
     const handleTouchStart = (e: TouchEvent) => {
-      // Solo en mÃƒÂ³vil y cuando el sidebar estÃƒÂ¡ cerrado
+      // Solo en mÒ³vil y cuando el sidebar estÒ¡ cerrado
       if (!isMobile() || mobileMenuOpen) {
         touchStartRef.current = null;
         return;
       }
       
       const touch = e.touches[0];
-      // Verificar si el touch comenzÃƒÂ³ cerca del borde izquierdo
+      // Verificar si el touch comenzÒ³ cerca del borde izquierdo
       if (touch.clientX <= EDGE_THRESHOLD) {
         touchStartRef.current = {
           x: touch.clientX,
@@ -85,7 +85,7 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
       const deltaY = Math.abs(touch.clientY - touchStartRef.current.y);
       const deltaTime = Date.now() - touchStartRef.current.time;
       
-      // Verificar si es un swipe vÃƒÂ¡lido: hacia la derecha, no muy vertical, y rÃƒÂ¡pido
+      // Verificar si es un swipe vÒ¡lido: hacia la derecha, no muy vertical, y rÒ¡pido
       if (
         deltaX >= SWIPE_THRESHOLD &&
         deltaY < 100 &&
@@ -124,12 +124,12 @@ export function Layout({ children, onNewGasto }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Icono hamburguesa - solo visible en mÃƒÂ³vil cuando el sidebar estÃƒÂ¡ oculto */}
+      {/* Icono hamburguesa - solo visible en mÒ³vil cuando el sidebar estÒ¡ oculto */}
       {!mobileMenuOpen && (
         <button
           className="fixed left-4 top-4 z-50 lg:hidden p-2 bg-card/40 backdrop-blur-sm rounded-lg shadow-md hover:bg-card/60 transition-colors"
           onClick={() => setMobileMenuOpen(true)}
-          aria-label="Abrir menÃƒÂº"
+          aria-label="Abrir menÒº"
         >
           <Menu size={24} className="text-foreground/70" />
         </button>

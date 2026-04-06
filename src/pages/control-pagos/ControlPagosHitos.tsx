@@ -1,4 +1,5 @@
-﻿import { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useEffect } from "react";
 import { Layout } from "@/components/Layout";
 import { PageHeader } from "@/components/PageHeader";
 import { SchemaInitializer } from "@/components/control-pagos/SchemaInitializer";
@@ -99,6 +100,7 @@ export default function ControlPagosHitos() {
   const [selectedArchivo, setSelectedArchivo] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
   const [saving, setSaving] = useState(false);
   const saveLock = useMemo(() => ({ current: false }), []);
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
 
   const projectMap = useMemo(() => {
     const map = new Map<string, { nombre: string; codigo?: string }>();
@@ -178,9 +180,18 @@ export default function ControlPagosHitos() {
     return documentosByHito.get(getHitoDocumentKey(editingHito.proyectoId, editingHito.nroHito)) || [];
   }, [editingHito, documentosByHito]);
 
+  const clearLocalPreview = () => {
+    if (localPreviewUrl) {
+      URL.revokeObjectURL(localPreviewUrl);
+      setLocalPreviewUrl(null);
+    }
+  };
+
   const resetForm = () => {
+    clearLocalPreview();
     setForm(initialForm);
     setEditingHito(undefined);
+    setSelectedArchivo(undefined);
   };
 
   const openCreateModal = () => {
@@ -189,6 +200,7 @@ export default function ControlPagosHitos() {
   };
 
   const openEditModal = (item: HitoPagoProyecto) => {
+    clearLocalPreview();
     setEditingHito(item);
     setForm({
       proyectoId: String(item.proyectoId),
@@ -204,6 +216,28 @@ export default function ControlPagosHitos() {
     setModalOpen(true);
   };
 
+  const openLocalFilePreview = (file?: File | null) => {
+    if (!file) return;
+
+    clearLocalPreview();
+    const previewUrl = URL.createObjectURL(file);
+    setLocalPreviewUrl(previewUrl);
+    setSelectedArchivo({
+      nombre: file.name,
+      url: previewUrl,
+      tipo: file.type || "application/octet-stream",
+    });
+    setViewerOpen(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl);
+      }
+    };
+  }, [localPreviewUrl]);
+
   const openDocumentosModal = (item: HitoPagoProyecto) => {
     setSelectedHitoForDocumentos(item);
     setDocumentosModalOpen(true);
@@ -214,7 +248,7 @@ export default function ControlPagosHitos() {
       await deleteDocumentoHito(documentoId);
       toast({
         title: "Documento eliminado",
-        description: "Se eliminÃ³ correctamente.",
+        description: "Se eliminó correctamente.",
         variant: "success",
       });
     } catch (error) {
@@ -238,7 +272,7 @@ export default function ControlPagosHitos() {
 
       if (!project) {
         toast({
-          title: "Proyecto invÃ¡lido",
+          title: "Proyecto inválido",
           description: "Debes seleccionar un proyecto valido.",
           variant: "destructive",
         });
@@ -248,7 +282,7 @@ export default function ControlPagosHitos() {
       const montoHitoValue = parseNumericInput(form.montoHito, { allowDecimal: true, maxDecimals: 2 });
       if (!Number.isFinite(montoHitoValue) || montoHitoValue <= 0) {
         toast({
-          title: "Monto invÃ¡lido",
+          title: "Monto inválido",
           description: "El monto del hito debe ser mayor a 0.",
           variant: "destructive",
         });
@@ -335,7 +369,7 @@ export default function ControlPagosHitos() {
         if (failedFilesCount > 0) {
           toast({
             title: "Hito creado con advertencia",
-            description: `Se creÃ³ el hito. Archivos guardados: ${uploadedFilesCount}/${filesToUpload.length}.`,
+            description: `Se creó el hito. Archivos guardados: ${uploadedFilesCount}/${filesToUpload.length}.`,
             variant: "destructive",
           });
         } else {
@@ -343,8 +377,8 @@ export default function ControlPagosHitos() {
             title: "Hito creado",
             description:
               filesToUpload.length > 0
-                ? `Se creÃ³ correctamente y se guardaron ${uploadedFilesCount} archivo(s).`
-                : "Se creÃ³ correctamente.",
+                ? `Se creó correctamente y se guardaron ${uploadedFilesCount} archivo(s).`
+                : "Se creó correctamente.",
             variant: "success",
           });
         }
@@ -370,7 +404,7 @@ export default function ControlPagosHitos() {
       await deleteHitoPagoProyecto(deleteId);
       toast({
         title: "Hito eliminado",
-        description: "Se eliminÃ³ correctamente.",
+        description: "Se eliminó correctamente.",
         variant: "success",
       });
     } catch (error) {
@@ -401,7 +435,7 @@ export default function ControlPagosHitos() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
-            placeholder="Buscar por cÃ³digo, proyecto o nro hito..."
+            placeholder="Buscar por código, proyecto o nro hito..."
           />
         </div>
         <Select value={projectFilter} onValueChange={setProjectFilter}>
@@ -607,7 +641,7 @@ export default function ControlPagosHitos() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="observacion">ObservaciÃ³n</Label>
+              <Label htmlFor="observacion">Observación</Label>
               <Input
                 id="observacion"
                 value={form.observacion}
@@ -654,17 +688,15 @@ export default function ControlPagosHitos() {
               )}
 
               {form.archivos.map((archivo, index) => (
-                <div key={`archivo-slot-${index}`} className="space-y-2 rounded-md border p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-muted-foreground">
-                      {archivo ? `Archivo ${index + 1}: ${archivo.name}` : `Archivo ${index + 1}`}
-                    </p>
-                    {form.archivos.length > 1 && (
+                <div key={`archivo-slot-${index}`} className="space-y-2">
+                  {form.archivos.length > 1 && (
+                    <div className="flex items-center justify-end gap-2">
                       <Button
                         type="button"
                         variant="ghost"
                         onClick={() =>
                           setForm((prev) => {
+                            clearLocalPreview();
                             const remaining = prev.archivos.filter((_, itemIndex) => itemIndex !== index);
                             return {
                               ...prev,
@@ -675,14 +707,18 @@ export default function ControlPagosHitos() {
                       >
                         Quitar
                       </Button>
-                    )}
-                  </div>
+                    </div>
+                  )}
 
-                  <Input
+                  <input
                     id={`archivosHito-${index}`}
                     type="file"
+                    className="hidden"
+                    aria-label={form.archivos.length > 1 ? `Seleccionar archivo ${index + 1}` : "Seleccionar archivo"}
                     onChange={(e) => {
                       const selectedFile = e.target.files?.[0] || null;
+                      clearLocalPreview();
+                      setSelectedArchivo(undefined);
                       setForm((prev) => {
                         const updated = [...prev.archivos];
                         updated[index] = selectedFile;
@@ -690,6 +726,26 @@ export default function ControlPagosHitos() {
                       });
                     }}
                   />
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => (document.getElementById(`archivosHito-${index}`) as HTMLInputElement | null)?.click()}
+                    >
+                      Seleccionar archivo
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={!archivo}
+                      onClick={() => openLocalFilePreview(archivo)}
+                    >
+                      Previsualizar
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {archivo ? `Archivo seleccionado: ${archivo.name}` : "Ningún archivo seleccionado."}
+                  </p>
                 </div>
               ))}
 
@@ -770,6 +826,7 @@ export default function ControlPagosHitos() {
         onClose={() => {
           setViewerOpen(false);
           setSelectedArchivo(undefined);
+          clearLocalPreview();
         }}
         archivo={selectedArchivo}
       />

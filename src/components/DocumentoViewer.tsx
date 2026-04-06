@@ -10,26 +10,46 @@ interface DocumentoViewerProps {
   archivo?: { nombre: string; url: string; tipo: string };
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
 export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isLocalPreviewUrl = Boolean(
+    archivo?.url && (archivo.url.startsWith('blob:') || archivo.url.startsWith('data:'))
+  );
+
+  const revokeObjectUrl = (url: string | null) => {
+    if (url?.startsWith('blob:')) {
+      URL.revokeObjectURL(url);
+    }
+  };
 
   useEffect(() => {
     if (open && archivo) {
-      loadFileWithAuth();
+      if (isLocalPreviewUrl) {
+        setError(null);
+        setLoading(false);
+        setBlobUrl(archivo.url);
+      } else {
+        loadFileWithAuth();
+      }
     } else if (blobUrl) {
-      URL.revokeObjectURL(blobUrl);
+      revokeObjectUrl(blobUrl);
       setBlobUrl(null);
     }
 
     return () => {
       if (blobUrl) {
-        URL.revokeObjectURL(blobUrl);
+        revokeObjectUrl(blobUrl);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, archivo?.url]);
+  }, [open, archivo?.url, isLocalPreviewUrl]);
 
   if (!archivo) return null;
 
@@ -81,8 +101,8 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
         }
 
         return await response.blob();
-      } catch (downloadError: any) {
-        lastError = downloadError instanceof Error ? downloadError : new Error(String(downloadError));
+      } catch (downloadError: unknown) {
+        lastError = downloadError instanceof Error ? downloadError : new Error(getErrorMessage(downloadError));
       }
     }
 
@@ -123,9 +143,9 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
       const finalBlob = normalizeBlobMimeType(blob);
       const url = URL.createObjectURL(finalBlob);
       setBlobUrl(url);
-    } catch (loadError: any) {
+    } catch (loadError: unknown) {
       console.error('Error al cargar archivo:', loadError);
-      setError(loadError?.message || 'No se pudo cargar el archivo');
+      setError(getErrorMessage(loadError) || 'No se pudo cargar el archivo');
     } finally {
       setLoading(false);
     }
@@ -151,7 +171,7 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-    } catch (downloadError: any) {
+    } catch (downloadError: unknown) {
       console.error('Error al descargar archivo:', downloadError);
       alert('No se pudo descargar el archivo. Por favor, intenta nuevamente.');
     }

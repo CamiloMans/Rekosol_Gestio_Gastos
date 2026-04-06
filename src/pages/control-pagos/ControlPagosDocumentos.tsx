@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { PageHeader } from "@/components/PageHeader";
 import { SchemaInitializer } from "@/components/control-pagos/SchemaInitializer";
@@ -62,6 +62,8 @@ export default function ControlPagosDocumentos() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
 
   const projectById = useMemo(() => {
     const map = new Map<string, { nombre: string; codigo?: string }>();
@@ -111,9 +113,19 @@ export default function ControlPagosDocumentos() {
       .sort((a, b) => (a.fechaDocumento || "").localeCompare(b.fechaDocumento || "") * -1);
   }, [documentosProyecto, search, projectFilter, projectById, projectByCode]);
 
+  const clearLocalPreview = () => {
+    if (localPreviewUrl) {
+      URL.revokeObjectURL(localPreviewUrl);
+      setLocalPreviewUrl(null);
+    }
+  };
+
   const resetForm = () => {
+    clearLocalPreview();
     setForm(initialForm);
     setEditingDocumento(undefined);
+    setSelectedFile(undefined);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const openCreateModal = () => {
@@ -122,6 +134,8 @@ export default function ControlPagosDocumentos() {
   };
 
   const openEditModal = (item: DocumentoProyecto) => {
+    clearLocalPreview();
+    setSelectedFile(undefined);
     setEditingDocumento(item);
     setForm({
       proyectoId: String(item.proyectoId),
@@ -131,8 +145,32 @@ export default function ControlPagosDocumentos() {
       observacion: normalizeObservacion(item.observacion || ""),
       archivo: null,
     });
+    if (fileInputRef.current) fileInputRef.current.value = "";
     setModalOpen(true);
   };
+
+  const openSelectedFilePreview = () => {
+    if (!form.archivo) return;
+
+    clearLocalPreview();
+
+    const previewUrl = URL.createObjectURL(form.archivo);
+    setLocalPreviewUrl(previewUrl);
+    setSelectedFile({
+      nombre: form.archivo.name,
+      url: previewUrl,
+      tipo: form.archivo.type || "application/octet-stream",
+    });
+    setViewerOpen(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (localPreviewUrl) {
+        URL.revokeObjectURL(localPreviewUrl);
+      }
+    };
+  }, [localPreviewUrl]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -414,17 +452,35 @@ export default function ControlPagosDocumentos() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="archivo">Archivo {editingDocumento ? "(opcional)" : "*"}</Label>
-              <Input
+              <input
                 id="archivo"
                 type="file"
+                className="hidden"
+                ref={fileInputRef}
+                aria-label={editingDocumento ? "Seleccionar archivo (opcional)" : "Seleccionar archivo"}
                 onChange={(e) => {
                   const file = e.target.files?.[0] || null;
+                  clearLocalPreview();
+                  setSelectedFile(undefined);
                   setForm((prev) => ({ ...prev, archivo: file }));
                 }}
-                required={!editingDocumento}
               />
-              <p className="text-xs text-muted-foreground">Se permite exactamente 1 archivo por registro.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
+                  Seleccionar archivo
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={openSelectedFilePreview}
+                  disabled={!form.archivo}
+                >
+                  Previsualizar
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {form.archivo ? `Archivo seleccionado: ${form.archivo.name}` : "Ningun archivo seleccionado."}
+              </p>
             </div>
 
             <div className="flex justify-end gap-2 border-t pt-4">
@@ -442,6 +498,7 @@ export default function ControlPagosDocumentos() {
         onClose={() => {
           setViewerOpen(false);
           setSelectedFile(undefined);
+          clearLocalPreview();
         }}
         archivo={selectedFile}
       />

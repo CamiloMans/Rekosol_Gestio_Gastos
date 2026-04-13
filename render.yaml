@@ -1,10 +1,10 @@
 services:
   - type: web
     name: rekosol-gestion-gastos
-    env: static
+    env: node
     rootDir: .
     buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
+    startCommand: npm run server
     pullRequestPreviewsEnabled: true
     headers:
       - path: /*

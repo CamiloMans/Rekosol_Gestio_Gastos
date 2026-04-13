@@ -3,15 +3,22 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Save } from 'lucide-react';
-import type { TipoDocumentoProyecto } from '@/services/sharepointService';
+
+type TipoDocumentoProyectoFormData = {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  activo?: boolean;
+};
 
 interface TipoDocumentoProyectoModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (tipoDocumentoProyecto: Omit<TipoDocumentoProyecto, 'id'>) => void;
-  tipoDocumentoProyecto?: TipoDocumentoProyecto;
+  onSave: (tipoDocumentoProyecto: Omit<TipoDocumentoProyectoFormData, 'id'>) => void | Promise<void>;
+  tipoDocumentoProyecto?: TipoDocumentoProyectoFormData;
 }
 
 export function TipoDocumentoProyectoModal({
@@ -21,33 +28,49 @@ export function TipoDocumentoProyectoModal({
   tipoDocumentoProyecto,
 }: TipoDocumentoProyectoModalProps) {
   const [nombre, setNombre] = useState('');
+  const [descripcion, setDescripcion] = useState('');
   const [activo, setActivo] = useState(true);
-  const [orden, setOrden] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (tipoDocumentoProyecto) {
       setNombre(tipoDocumentoProyecto.nombre || '');
+      setDescripcion(tipoDocumentoProyecto.descripcion || '');
       setActivo(Boolean(tipoDocumentoProyecto.activo));
-      setOrden(tipoDocumentoProyecto.orden !== undefined ? String(tipoDocumentoProyecto.orden) : '');
     } else {
       setNombre('');
+      setDescripcion('');
       setActivo(true);
-      setOrden('');
     }
   }, [tipoDocumentoProyecto, open]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({
-      nombre: nombre.trim().toUpperCase(),
-      activo,
-      orden: orden.trim() ? Number(orden) : undefined,
-    });
-    onClose();
+    setIsSaving(true);
+
+    try {
+      await onSave({
+        nombre: nombre.trim().toUpperCase(),
+        descripcion: descripcion.trim() ? descripcion.trim().toUpperCase() : undefined,
+        activo,
+      });
+      onClose();
+    } catch (error) {
+      console.error('Error al guardar documento de proyecto:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !isSaving) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md bg-card">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
@@ -61,8 +84,20 @@ export function TipoDocumentoProyectoModal({
               id="nombreTipoDocumentoProyecto"
               placeholder="Ej: FACTURA / CONTRATO / ORDEN DE COMPRA"
               value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
+              onChange={(e) => setNombre(e.target.value.toUpperCase())}
               required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="descripcionTipoDocumentoProyecto">Descripcion</Label>
+            <Textarea
+              id="descripcionTipoDocumentoProyecto"
+              placeholder="Descripcion opcional"
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
+              rows={3}
+              style={{ textTransform: 'uppercase' }}
             />
           </div>
 
@@ -77,26 +112,13 @@ export function TipoDocumentoProyectoModal({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="ordenTipoDocumentoProyecto">Orden</Label>
-            <Input
-              id="ordenTipoDocumentoProyecto"
-              type="number"
-              min="1"
-              step="1"
-              placeholder="Ej: 1"
-              value={orden}
-              onChange={(e) => setOrden(e.target.value)}
-            />
-          </div>
-
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
               Cancelar
             </Button>
-            <Button type="submit" className="gap-2">
+            <Button type="submit" className="gap-2" disabled={isSaving}>
               <Save size={18} />
-              Guardar
+              {isSaving ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>
         </form>
@@ -104,4 +126,3 @@ export function TipoDocumentoProyectoModal({
     </Dialog>
   );
 }
-

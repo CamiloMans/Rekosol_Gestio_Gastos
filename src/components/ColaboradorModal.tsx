@@ -10,7 +10,7 @@ import { Save } from 'lucide-react';
 interface ColaboradorModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (colaborador: Omit<Colaborador, 'id' | 'createdAt'>) => void;
+  onSave: (colaborador: Omit<Colaborador, 'id' | 'createdAt'>) => void | Promise<void>;
   colaborador?: Colaborador;
 }
 
@@ -19,6 +19,7 @@ export function ColaboradorModal({ open, onClose, onSave, colaborador }: Colabor
   const [email, setEmail] = useState('');
   const [telefono, setTelefono] = useState('');
   const [cargo, setCargo] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (colaborador) {
@@ -34,19 +35,34 @@ export function ColaboradorModal({ open, onClose, onSave, colaborador }: Colabor
     }
   }, [colaborador, open]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ 
-      nombre,
-      email: email || undefined,
-      telefono: telefono || undefined,
-      cargo: cargo || undefined,
-    });
-    onClose();
+    setIsSaving(true);
+
+    try {
+      await onSave({
+        nombre: nombre.trim().toUpperCase(),
+        email: email || undefined,
+        telefono: telefono || undefined,
+        cargo: cargo || undefined,
+      });
+      onClose();
+    } catch (error) {
+      console.error('Error al guardar colaborador:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !isSaving) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md bg-card">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
@@ -60,13 +76,13 @@ export function ColaboradorModal({ open, onClose, onSave, colaborador }: Colabor
               id="nombre"
               placeholder="Nombre completo"
               value={nombre}
-              onChange={(e) => setNombre(e.target.value)}
+              onChange={(e) => setNombre(e.target.value.toUpperCase())}
               required
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="email">Correo electrónico</Label>
+            <Label htmlFor="email">Correo electronico</Label>
             <Input
               id="email"
               type="email"
@@ -77,7 +93,7 @@ export function ColaboradorModal({ open, onClose, onSave, colaborador }: Colabor
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="telefono">Teléfono</Label>
+            <Label htmlFor="telefono">Telefono</Label>
             <Input
               id="telefono"
               type="tel"
@@ -89,7 +105,7 @@ export function ColaboradorModal({ open, onClose, onSave, colaborador }: Colabor
 
           <div className="space-y-2">
             <Label htmlFor="cargo">Cargo</Label>
-            <Select value={cargo} onValueChange={setCargo}>
+            <Select value={cargo || undefined} onValueChange={setCargo}>
               <SelectTrigger className="bg-card" id="cargo">
                 <SelectValue placeholder="Seleccionar cargo" />
               </SelectTrigger>
@@ -102,12 +118,12 @@ export function ColaboradorModal({ open, onClose, onSave, colaborador }: Colabor
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
               Cancelar
             </Button>
-            <Button type="submit" className="gap-2">
+            <Button type="submit" className="gap-2" disabled={isSaving}>
               <Save size={18} />
-              Guardar
+              {isSaving ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>
         </form>
@@ -115,4 +131,3 @@ export function ColaboradorModal({ open, onClose, onSave, colaborador }: Colabor
     </Dialog>
   );
 }
-

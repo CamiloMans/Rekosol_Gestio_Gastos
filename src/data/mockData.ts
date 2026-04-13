@@ -5,6 +5,7 @@ export interface Empresa {
   numeroContacto?: string;
   correoElectronico?: string;
   categoria?: 'Empresa' | 'Persona Natural';
+  activo?: boolean;
   createdAt: string;
 }
 
@@ -14,6 +15,7 @@ export interface Proyecto {
   codigoProyecto?: string;
   montoTotalProyecto?: number;
   monedaBase?: 'CLP' | 'UF' | 'USD';
+  activo?: boolean;
   createdAt: string;
 }
 
@@ -23,6 +25,7 @@ export interface Colaborador {
   email?: string;
   telefono?: string;
   cargo?: string;
+  activo?: boolean;
   createdAt: string;
 }
 
@@ -42,7 +45,7 @@ export interface Gasto {
   colaboradorId?: string;
   colaboradorNombre?: string;
   comentarioTipoDocumento?: string;
-  archivosAdjuntos?: Array<{ nombre: string; url: string; tipo: string }>;
+  archivosAdjuntos?: Array<{ id?: string; nombre: string; url: string; tipo: string; file?: File }>;
 }
 
 export const categorias = [

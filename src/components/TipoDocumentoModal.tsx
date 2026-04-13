@@ -3,46 +3,69 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Save } from 'lucide-react';
-import type { TipoDocumento } from '@/services/sharepointService';
+
+type TipoDocumentoFormData = {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  activo?: boolean;
+};
 
 interface TipoDocumentoModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (tipoDocumento: Omit<TipoDocumento, 'id'>) => void;
-  tipoDocumento?: TipoDocumento;
+  onSave: (tipoDocumento: Omit<TipoDocumentoFormData, 'id'>) => void | Promise<void>;
+  tipoDocumento?: TipoDocumentoFormData;
 }
 
 export function TipoDocumentoModal({ open, onClose, onSave, tipoDocumento }: TipoDocumentoModalProps) {
   const [nombre, setNombre] = useState('');
-  const [tieneImpuestos, setTieneImpuestos] = useState(false);
-  const [valorImpuestos, setValorImpuestos] = useState('');
+  const [descripcion, setDescripcion] = useState('');
+  const [activo, setActivo] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (tipoDocumento) {
       setNombre(tipoDocumento.nombre ? tipoDocumento.nombre.toUpperCase() : '');
-      setTieneImpuestos(tipoDocumento.tieneImpuestos || false);
-      setValorImpuestos(tipoDocumento.valorImpuestos?.toString() || '');
+      setDescripcion(tipoDocumento.descripcion ? tipoDocumento.descripcion.toUpperCase() : '');
+      setActivo(tipoDocumento.activo ?? true);
     } else {
       setNombre('');
-      setTieneImpuestos(false);
-      setValorImpuestos('');
+      setDescripcion('');
+      setActivo(true);
     }
   }, [tipoDocumento, open]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ 
-      nombre,
-      tieneImpuestos,
-      valorImpuestos: valorImpuestos ? parseFloat(valorImpuestos) : undefined,
-    });
-    onClose();
+    setIsSaving(true);
+
+    try {
+      await onSave({
+        nombre: nombre.trim().toUpperCase(),
+        descripcion: descripcion.trim() ? descripcion.trim().toUpperCase() : undefined,
+        activo,
+      });
+      onClose();
+    } catch (error) {
+      console.error('Error al guardar tipo de documento:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !isSaving) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md bg-card">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
@@ -62,42 +85,35 @@ export function TipoDocumentoModal({ open, onClose, onSave, tipoDocumento }: Tip
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="descripcionTipoDocumento">Descripcion</Label>
+            <Textarea
+              id="descripcionTipoDocumento"
+              placeholder="Descripcion opcional"
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value.toUpperCase())}
+              rows={3}
+              style={{ textTransform: 'uppercase' }}
+            />
+          </div>
+
+          <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label htmlFor="tieneImpuestos">Tiene Impuestos</Label>
+              <Label htmlFor="activoTipoDocumento">Activo</Label>
               <Switch
-                id="tieneImpuestos"
-                checked={tieneImpuestos}
-                onCheckedChange={setTieneImpuestos}
+                id="activoTipoDocumento"
+                checked={activo}
+                onCheckedChange={setActivo}
               />
             </div>
           </div>
 
-          {tieneImpuestos && (
-            <div className="space-y-2">
-              <Label htmlFor="valorImpuestos">Valor de Impuestos (decimal)</Label>
-              <Input
-                id="valorImpuestos"
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                placeholder="Ej: 0.19 para 19%"
-                value={valorImpuestos}
-                onChange={(e) => setValorImpuestos(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Ingresa el valor como decimal (ej: 0.19 para 19%, 0.21 para 21%)
-              </p>
-            </div>
-          )}
-
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
               Cancelar
             </Button>
-            <Button type="submit" className="gap-2">
+            <Button type="submit" className="gap-2" disabled={isSaving}>
               <Save size={18} />
-              Guardar
+              {isSaving ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>
         </form>
@@ -105,4 +121,3 @@ export function TipoDocumentoModal({ open, onClose, onSave, tipoDocumento }: Tip
     </Dialog>
   );
 }
-

@@ -56,6 +56,23 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
   const esImagen = archivo.tipo.startsWith('image/');
   const esPDF = archivo.tipo === 'application/pdf';
 
+  const isInternalFileUrl = (rawUrl: string): boolean => {
+    if (!rawUrl) {
+      return false;
+    }
+
+    if (rawUrl.startsWith('/api/')) {
+      return true;
+    }
+
+    try {
+      const parsed = new URL(rawUrl, window.location.origin);
+      return parsed.origin === window.location.origin && parsed.pathname.startsWith('/api/');
+    } catch {
+      return false;
+    }
+  };
+
   const resolveFallbackDownloadUrl = (rawUrl: string): string | null => {
     try {
       if (rawUrl.includes('/_api/web/GetFileByServerRelativeUrl(')) return null;
@@ -74,6 +91,20 @@ export function DocumentoViewer({ open, onClose, archivo }: DocumentoViewerProps
   };
 
   const downloadBlobWithAuth = async (): Promise<Blob> => {
+    if (isInternalFileUrl(archivo.url)) {
+      const response = await fetch(archivo.url, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Error al cargar el archivo: ${response.status} ${response.statusText} ${errorText}`);
+      }
+
+      return await response.blob();
+    }
+
     const token = await getSharePointRestToken();
     const urls: string[] = [archivo.url];
     const fallbackUrl = resolveFallbackDownloadUrl(archivo.url);

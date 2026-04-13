@@ -10,7 +10,7 @@ import { Save } from 'lucide-react';
 interface EmpresaModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (empresa: Omit<Empresa, 'id' | 'createdAt'>) => void;
+  onSave: (empresa: Omit<Empresa, 'id' | 'createdAt'>) => void | Promise<void>;
   empresa?: Empresa;
 }
 
@@ -20,6 +20,7 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
   const [numeroContacto, setNumeroContacto] = useState('');
   const [correoElectronico, setCorreoElectronico] = useState('');
   const [categoria, setCategoria] = useState<'Empresa' | 'Persona Natural' | ''>('');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (empresa) {
@@ -37,20 +38,35 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
     }
   }, [empresa, open]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ 
-      razonSocial, 
-      rut,
-      numeroContacto: numeroContacto || undefined,
-      correoElectronico: correoElectronico || undefined,
-      categoria: categoria ? (categoria as 'Empresa' | 'Persona Natural') : undefined,
-    });
-    onClose();
+    setIsSaving(true);
+
+    try {
+      await onSave({
+        razonSocial,
+        rut,
+        numeroContacto: numeroContacto || undefined,
+        correoElectronico: correoElectronico || undefined,
+        categoria: categoria ? (categoria as 'Empresa' | 'Persona Natural') : undefined,
+      });
+      onClose();
+    } catch (error) {
+      console.error('Error al guardar empresa:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !isSaving) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md bg-card">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
@@ -115,12 +131,12 @@ export function EmpresaModal({ open, onClose, onSave, empresa }: EmpresaModalPro
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
               Cancelar
             </Button>
-            <Button type="submit" className="gap-2">
+            <Button type="submit" className="gap-2" disabled={isSaving}>
               <Save size={18} />
-              Guardar
+              {isSaving ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>
         </form>

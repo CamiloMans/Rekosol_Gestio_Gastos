@@ -1,10 +1,7 @@
-import { useMemo, useState } from "react";
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { PageHeader } from "@/components/PageHeader";
-import { SchemaInitializer } from "@/components/control-pagos/SchemaInitializer";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { DocumentoViewer } from "@/components/DocumentoViewer";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,12 +9,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useDocumentosHito, useHitosPagoProyecto, useProyectos } from "@/hooks/useSharePoint";
+import type { Proyecto } from "@/data/mockData";
 import { formatDateOnly } from "@/lib/date-format";
 import { formatNumericInput, parseNumericInput } from "@/lib/numeric-input";
-import type { HitoPagoProyecto, MonedaProyecto } from "@/services/sharepointService";
 import { toast } from "@/hooks/use-toast";
-import { FileText, Paperclip, Pencil, Search, Trash2 } from "lucide-react";
+import {
+  postgresApi,
+  type HitoPagoProyecto,
+  type HitoPagoProyectoCreateInput,
+  type MonedaProyecto,
+} from "@/services/postgresApi";
+import { Pencil, Search, Trash2 } from "lucide-react";
 
 interface HitoFormState {
   proyectoId: string;
@@ -28,7 +30,6 @@ interface HitoFormState {
   facturado: boolean;
   pagado: boolean;
   observacion: string;
-  archivos: Array<File | null>;
 }
 
 const initialForm: HitoFormState = {
@@ -40,7 +41,6 @@ const initialForm: HitoFormState = {
   facturado: false,
   pagado: false,
   observacion: "",
-  archivos: [null],
 };
 
 function normalizeObservacion(value: string) {
@@ -79,49 +79,95 @@ function statusTag(flag: boolean) {
   return flag ? "SI" : "NO";
 }
 
-function getHitoDocumentKey(proyectoId: string, nroHito: number) {
-  return `${String(proyectoId)}::${Number(nroHito)}`;
+function sortProjects(items: Proyecto[]) {
+  return [...items].sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
+}
+
+function sortHitos(items: HitoPagoProyecto[]) {
+  return [...items].sort((a, b) => {
+    if (String(a.proyectoId) !== String(b.proyectoId)) {
+      return String(a.proyectoId).localeCompare(String(b.proyectoId));
+    }
+
+    return a.nroHito - b.nroHito;
+  });
 }
 
 export default function ControlPagosHitos() {
-  const { proyectos } = useProyectos();
-  const { hitosPagoProyecto, loading, createHitoPagoProyecto, updateHitoPagoProyecto, deleteHitoPagoProyecto } = useHitosPagoProyecto();
-  const { documentosHito, createDocumentoHito, deleteDocumentoHito } = useDocumentosHito();
-
+  const [proyectos, setProyectos] = useState<Proyecto[]>([]);
+  const [hitosPagoProyecto, setHitosPagoProyecto] = useState<HitoPagoProyecto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [projectFilter, setProjectFilter] = useState("all");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingHito, setEditingHito] = useState<HitoPagoProyecto | undefined>();
   const [form, setForm] = useState<HitoFormState>(initialForm);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [documentosModalOpen, setDocumentosModalOpen] = useState(false);
-  const [selectedHitoForDocumentos, setSelectedHitoForDocumentos] = useState<HitoPagoProyecto | undefined>();
-  const [viewerOpen, setViewerOpen] = useState(false);
-  const [selectedArchivo, setSelectedArchivo] = useState<{ nombre: string; url: string; tipo: string } | undefined>();
   const [saving, setSaving] = useState(false);
-  const saveLock = useMemo(() => ({ current: false }), []);
-  const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
+  const saveLockRef = useRef(false);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [bootstrap, hitos] = await Promise.all([
+        postgresApi.getBootstrap(),
+        postgresApi.getHitosPagoProyecto(),
+      ]);
+
+      setProyectos(sortProjects(bootstrap.proyectos));
+      setHitosPagoProyecto(sortHitos(hitos));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "No se pudo cargar Control de Pagos");
+      setProyectos([]);
+      setHitosPagoProyecto([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!error) {
+      return;
+    }
+
+    toast({
+      title: "Error",
+      description: error,
+      variant: "destructive",
+    });
+  }, [error]);
 
   const projectMap = useMemo(() => {
     const map = new Map<string, { nombre: string; codigo?: string }>();
+
     proyectos.forEach((project) => {
       map.set(String(project.id), { nombre: project.nombre, codigo: project.codigoProyecto });
     });
+
     return map;
   }, [proyectos]);
 
   const projectByCode = useMemo(() => {
     const map = new Map<string, { nombre: string; id: string }>();
+
     proyectos.forEach((project) => {
       const code = (project.codigoProyecto || "").trim().toUpperCase();
       if (code) {
         map.set(code, { nombre: project.nombre, id: String(project.id) });
       }
     });
+
     return map;
   }, [proyectos]);
 
-  const resolveProjectName = (item: Pick<HitoPagoProyecto, "proyectoId" | "codigoProyecto">) => {
+  const resolveProjectName = useCallback((item: Pick<HitoPagoProyecto, "proyectoId" | "codigoProyecto">) => {
     const byId = projectMap.get(String(item.proyectoId))?.nombre;
     if (byId) return byId;
 
@@ -130,68 +176,39 @@ export default function ControlPagosHitos() {
     if (byCode) return byCode;
 
     return item.codigoProyecto || "-";
-  };
+  }, [projectByCode, projectMap]);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return hitosPagoProyecto
+
+    return [...hitosPagoProyecto]
       .filter((item) => {
         if (projectFilter !== "all" && String(item.proyectoId) !== String(projectFilter)) return false;
         if (!query) return true;
+
         const projectName = resolveProjectName(item);
         return (
-          String(item.nroHito).includes(query) ||
-          (item.codigoProyecto || "").toLowerCase().includes(query) ||
-          projectName.toLowerCase().includes(query)
+          String(item.nroHito).includes(query)
+          || (item.codigoProyecto || "").toLowerCase().includes(query)
+          || projectName.toLowerCase().includes(query)
         );
       })
-      .sort((a, b) => a.nroHito - b.nroHito);
-  }, [hitosPagoProyecto, search, projectFilter, projectMap, projectByCode]);
+      .sort((a, b) => {
+        const projectComparison = resolveProjectName(a).localeCompare(resolveProjectName(b), "es", {
+          sensitivity: "base",
+        });
 
-  const documentosByHito = useMemo(() => {
-    const map = new Map<string, typeof documentosHito>();
+        if (projectComparison !== 0) {
+          return projectComparison;
+        }
 
-    documentosHito.forEach((item) => {
-      if (!item.archivoAdjunto) return;
-      const key = getHitoDocumentKey(item.proyectoId, item.hito);
-      const current = map.get(key) || [];
-      current.push(item);
-      map.set(key, current);
-    });
-
-    map.forEach((items) => {
-      items.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-    });
-
-    return map;
-  }, [documentosHito]);
-
-  const selectedHitoDocumentos = useMemo(() => {
-    if (!selectedHitoForDocumentos) return [];
-    return (
-      documentosByHito.get(
-        getHitoDocumentKey(selectedHitoForDocumentos.proyectoId, selectedHitoForDocumentos.nroHito),
-      ) || []
-    );
-  }, [selectedHitoForDocumentos, documentosByHito]);
-
-  const editingHitoDocumentos = useMemo(() => {
-    if (!editingHito) return [];
-    return documentosByHito.get(getHitoDocumentKey(editingHito.proyectoId, editingHito.nroHito)) || [];
-  }, [editingHito, documentosByHito]);
-
-  const clearLocalPreview = () => {
-    if (localPreviewUrl) {
-      URL.revokeObjectURL(localPreviewUrl);
-      setLocalPreviewUrl(null);
-    }
-  };
+        return a.nroHito - b.nroHito;
+      });
+  }, [hitosPagoProyecto, projectFilter, resolveProjectName, search]);
 
   const resetForm = () => {
-    clearLocalPreview();
     setForm(initialForm);
     setEditingHito(undefined);
-    setSelectedArchivo(undefined);
   };
 
   const openCreateModal = () => {
@@ -200,7 +217,6 @@ export default function ControlPagosHitos() {
   };
 
   const openEditModal = (item: HitoPagoProyecto) => {
-    clearLocalPreview();
     setEditingHito(item);
     setForm({
       proyectoId: String(item.proyectoId),
@@ -211,60 +227,15 @@ export default function ControlPagosHitos() {
       facturado: item.facturado,
       pagado: item.pagado,
       observacion: normalizeObservacion(item.observacion || ""),
-      archivos: [null],
     });
     setModalOpen(true);
   };
 
-  const openLocalFilePreview = (file?: File | null) => {
-    if (!file) return;
-
-    clearLocalPreview();
-    const previewUrl = URL.createObjectURL(file);
-    setLocalPreviewUrl(previewUrl);
-    setSelectedArchivo({
-      nombre: file.name,
-      url: previewUrl,
-      tipo: file.type || "application/octet-stream",
-    });
-    setViewerOpen(true);
-  };
-
-  useEffect(() => {
-    return () => {
-      if (localPreviewUrl) {
-        URL.revokeObjectURL(localPreviewUrl);
-      }
-    };
-  }, [localPreviewUrl]);
-
-  const openDocumentosModal = (item: HitoPagoProyecto) => {
-    setSelectedHitoForDocumentos(item);
-    setDocumentosModalOpen(true);
-  };
-
-  const handleDeleteDocumentoHito = async (documentoId: string) => {
-    try {
-      await deleteDocumentoHito(documentoId);
-      toast({
-        title: "Documento eliminado",
-        description: "Se eliminó correctamente.",
-        variant: "success",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "No se pudo eliminar el documento",
-        variant: "destructive",
-      });
-    }
-  };
-
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (saveLock.current) return;
+    if (saveLockRef.current) return;
 
-    saveLock.current = true;
+    saveLockRef.current = true;
     setSaving(true);
 
     try {
@@ -272,7 +243,7 @@ export default function ControlPagosHitos() {
 
       if (!project) {
         toast({
-          title: "Proyecto inválido",
+          title: "Proyecto invalido",
           description: "Debes seleccionar un proyecto valido.",
           variant: "destructive",
         });
@@ -282,135 +253,77 @@ export default function ControlPagosHitos() {
       const montoHitoValue = parseNumericInput(form.montoHito, { allowDecimal: true, maxDecimals: 2 });
       if (!Number.isFinite(montoHitoValue) || montoHitoValue <= 0) {
         toast({
-          title: "Monto inválido",
+          title: "Monto invalido",
           description: "El monto del hito debe ser mayor a 0.",
           variant: "destructive",
         });
         return;
       }
 
+      const payload: HitoPagoProyectoCreateInput = {
+        proyectoId: form.proyectoId,
+        montoHito: montoHitoValue,
+        moneda: form.moneda,
+        fechaCompromiso: form.fechaCompromiso,
+        fechaPago: form.fechaPago || undefined,
+        facturado: form.facturado,
+        pagado: form.pagado,
+        observacion: normalizeObservacion(form.observacion),
+      };
+
       if (editingHito) {
-        await updateHitoPagoProyecto(editingHito.id, {
-          proyectoId: form.proyectoId,
-          codigoProyecto: project.codigoProyecto || "",
-          montoHito: montoHitoValue,
-          moneda: form.moneda,
-          fechaCompromiso: form.fechaCompromiso,
-          fechaPago: form.fechaPago || undefined,
-          facturado: form.facturado,
-          pagado: form.pagado,
-          observacion: normalizeObservacion(form.observacion),
+        const updated = await postgresApi.updateHitoPagoProyecto(editingHito.id, payload);
+        setHitosPagoProyecto((prev) =>
+          sortHitos(prev.map((item) => (item.id === editingHito.id ? updated : item)))
+        );
+        toast({
+          title: "Hito actualizado",
+          description: project.codigoProyecto
+            ? `Se actualizo correctamente para ${project.codigoProyecto}.`
+            : "Se actualizo correctamente.",
+          variant: "success",
         });
-                const filesToUpload = form.archivos.filter((archivo): archivo is File => Boolean(archivo));
-        let uploadedFilesCount = 0;
-        let failedFilesCount = 0;
-        if (filesToUpload.length > 0) {
-          const results = await Promise.allSettled(
-            filesToUpload.map((archivo) =>
-              createDocumentoHito({
-                proyectoId: form.proyectoId,
-                codigoProyecto: project.codigoProyecto || "",
-                hito: editingHito.nroHito,
-                archivo,
-              }),
-            ),
-          );
-          uploadedFilesCount = results.filter((result) => result.status === "fulfilled").length;
-          failedFilesCount = results.length - uploadedFilesCount;
-        }
-
-        if (failedFilesCount > 0) {
-          toast({
-            title: "Hito actualizado con advertencia",
-            description: `Hito actualizado. Archivos guardados: ${uploadedFilesCount}/${filesToUpload.length}.`,
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Hito actualizado",
-            description:
-              filesToUpload.length > 0
-                ? `Se actualizó correctamente y se guardaron ${uploadedFilesCount} archivo(s).`
-                : "Se actualizó correctamente.",
-            variant: "success",
-          });
-        }
       } else {
-        const created = await createHitoPagoProyecto({
-          proyectoId: form.proyectoId,
-          codigoProyecto: project.codigoProyecto || "",
-          montoHito: montoHitoValue,
-          moneda: form.moneda,
-          fechaCompromiso: form.fechaCompromiso,
-          fechaPago: form.fechaPago || undefined,
-          facturado: form.facturado,
-          pagado: form.pagado,
-          observacion: normalizeObservacion(form.observacion),
+        const created = await postgresApi.createHitoPagoProyecto(payload);
+        setHitosPagoProyecto((prev) => sortHitos([...prev, created]));
+        toast({
+          title: "Hito creado",
+          description: project.codigoProyecto
+            ? `Se creo correctamente para ${project.codigoProyecto}.`
+            : "Se creo correctamente.",
+          variant: "success",
         });
-
-        const filesToUpload = form.archivos.filter((archivo): archivo is File => Boolean(archivo));
-        let uploadedFilesCount = 0;
-        let failedFilesCount = 0;
-        if (filesToUpload.length > 0) {
-          const results = await Promise.allSettled(
-            filesToUpload.map((archivo) =>
-              createDocumentoHito({
-                proyectoId: form.proyectoId,
-                codigoProyecto: project.codigoProyecto || "",
-                hito: created.nroHito,
-                archivo,
-              }),
-            ),
-          );
-          uploadedFilesCount = results.filter((result) => result.status === "fulfilled").length;
-          failedFilesCount = results.length - uploadedFilesCount;
-        }
-
-        if (failedFilesCount > 0) {
-          toast({
-            title: "Hito creado con advertencia",
-            description: `Se creó el hito. Archivos guardados: ${uploadedFilesCount}/${filesToUpload.length}.`,
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Hito creado",
-            description:
-              filesToUpload.length > 0
-                ? `Se creó correctamente y se guardaron ${uploadedFilesCount} archivo(s).`
-                : "Se creó correctamente.",
-            variant: "success",
-          });
-        }
       }
 
       setModalOpen(false);
       resetForm();
-    } catch (error) {
+    } catch (saveError) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "No se pudo guardar el hito",
+        description: saveError instanceof Error ? saveError.message : "No se pudo guardar el hito",
         variant: "destructive",
       });
     } finally {
-      saveLock.current = false;
+      saveLockRef.current = false;
       setSaving(false);
     }
   };
 
   const confirmDelete = async () => {
     if (!deleteId) return;
+
     try {
-      await deleteHitoPagoProyecto(deleteId);
+      await postgresApi.deleteHitoPagoProyecto(deleteId);
+      setHitosPagoProyecto((prev) => prev.filter((item) => item.id !== deleteId));
       toast({
         title: "Hito eliminado",
-        description: "Se eliminó correctamente.",
+        description: "Se elimino correctamente.",
         variant: "success",
       });
-    } catch (error) {
+    } catch (deleteError) {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "No se pudo eliminar el hito",
+        description: deleteError instanceof Error ? deleteError.message : "No se pudo eliminar el hito",
         variant: "destructive",
       });
     } finally {
@@ -426,7 +339,9 @@ export default function ControlPagosHitos() {
         action={{ label: "Nuevo Hito", onClick: openCreateModal }}
       />
 
-      <SchemaInitializer />
+      <div className="mb-4 rounded-xl border bg-card p-4 text-sm text-muted-foreground shadow-sm">
+        Esta pantalla ya usa PostgreSQL para los registros. Los documentos asociados al hito quedan fuera de esta etapa.
+      </div>
 
       <div className="mb-4 grid gap-3 rounded-xl border bg-card p-4 shadow-sm sm:grid-cols-2">
         <div className="relative">
@@ -435,7 +350,7 @@ export default function ControlPagosHitos() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
-            placeholder="Buscar por código, proyecto o nro hito..."
+            placeholder="Buscar por codigo, proyecto o nro hito..."
           />
         </div>
         <Select value={projectFilter} onValueChange={setProjectFilter}>
@@ -465,60 +380,36 @@ export default function ControlPagosHitos() {
               <TableHead>FECHA PAGO</TableHead>
               <TableHead>FACTURADO</TableHead>
               <TableHead>PAGADO</TableHead>
-              <TableHead className="text-center">DOCUMENTOS</TableHead>
               <TableHead className="text-center">ACCIONES</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((item) => {
-              const documentos = documentosByHito.get(getHitoDocumentKey(item.proyectoId, item.nroHito)) || [];
-
-              return (
-                <TableRow key={item.id}>
-                  <TableCell>{resolveProjectName(item)}</TableCell>
-                  <TableCell>{item.nroHito}</TableCell>
-                  <TableCell>{formatAmount(item.montoHito, item.moneda)}</TableCell>
-                  <TableCell>{item.moneda}</TableCell>
-                  <TableCell>{formatDateOnly(item.fechaCompromiso)}</TableCell>
-                  <TableCell>{formatDateOnly(item.fechaPago)}</TableCell>
-                  <TableCell>{statusTag(item.facturado)}</TableCell>
-                  <TableCell>{statusTag(item.pagado)}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center justify-center gap-2">
-                      {documentos.length > 0 ? (
-                        <>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => openDocumentosModal(item)}
-                            title={`Ver ${documentos.length} documento(s)`}
-                          >
-                            <FileText size={16} className="text-primary" />
-                          </Button>
-                          <span className="text-xs text-muted-foreground">{documentos.length}</span>
-                        </>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-center gap-1">
-                      <Button variant="ghost" size="icon" onClick={() => openEditModal(item)}>
-                        <Pencil size={16} />
-                      </Button>
-                      <Button variant="ghost" size="icon" onClick={() => setDeleteId(item.id)}>
-                        <Trash2 size={16} className="text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+            {filtered.map((item) => (
+              <TableRow key={item.id}>
+                <TableCell>{resolveProjectName(item)}</TableCell>
+                <TableCell>{item.nroHito}</TableCell>
+                <TableCell>{formatAmount(item.montoHito, item.moneda)}</TableCell>
+                <TableCell>{item.moneda}</TableCell>
+                <TableCell>{formatDateOnly(item.fechaCompromiso)}</TableCell>
+                <TableCell>{formatDateOnly(item.fechaPago)}</TableCell>
+                <TableCell>{statusTag(item.facturado)}</TableCell>
+                <TableCell>{statusTag(item.pagado)}</TableCell>
+                <TableCell>
+                  <div className="flex justify-center gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => openEditModal(item)}>
+                      <Pencil size={16} />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => setDeleteId(item.id)}>
+                      <Trash2 size={16} className="text-destructive" />
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
 
             {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
                   No hay hitos para mostrar.
                 </TableCell>
               </TableRow>
@@ -621,9 +512,7 @@ export default function ControlPagosHitos() {
                 <Checkbox
                   id="facturado"
                   checked={form.facturado}
-                  onCheckedChange={(checked) =>
-                    setForm((prev) => ({ ...prev, facturado: Boolean(checked) }))
-                  }
+                  onCheckedChange={(checked) => setForm((prev) => ({ ...prev, facturado: Boolean(checked) }))}
                 />
                 <Label htmlFor="facturado" className="cursor-pointer">Facturado</Label>
               </div>
@@ -632,164 +521,19 @@ export default function ControlPagosHitos() {
                 <Checkbox
                   id="pagado"
                   checked={form.pagado}
-                  onCheckedChange={(checked) =>
-                    setForm((prev) => ({ ...prev, pagado: Boolean(checked) }))
-                  }
+                  onCheckedChange={(checked) => setForm((prev) => ({ ...prev, pagado: Boolean(checked) }))}
                 />
                 <Label htmlFor="pagado" className="cursor-pointer">Pagado</Label>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="observacion">Observación</Label>
+              <Label htmlFor="observacion">Observacion</Label>
               <Input
                 id="observacion"
                 value={form.observacion}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, observacion: normalizeObservacion(e.target.value) }))
-                }
+                onChange={(e) => setForm((prev) => ({ ...prev, observacion: normalizeObservacion(e.target.value) }))}
               />
-            </div>
-
-            <div className="space-y-3">
-              <Label>{editingHito ? "Agregar documentos al hito (opcional)" : "Archivos (opcional)"}</Label>
-
-              {editingHito && (
-                <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-xs text-muted-foreground">Documentos actuales asociados al hito:</p>
-                  {editingHitoDocumentos.length === 0 ? (
-                    <p className="text-xs text-muted-foreground">No hay documentos asociados.</p>
-                  ) : (
-                    editingHitoDocumentos.map((documento) => (
-                      <div key={`doc-edit-${documento.id}`} className="flex items-center justify-between gap-2 rounded-md border p-2">
-                        <button
-                          type="button"
-                          className="flex min-w-0 items-center gap-2 text-left text-sm text-primary hover:underline"
-                          onClick={() => {
-                            if (!documento.archivoAdjunto) return;
-                            setSelectedArchivo(documento.archivoAdjunto);
-                            setViewerOpen(true);
-                          }}
-                        >
-                          <FileText size={14} className="shrink-0" />
-                          <span className="truncate">{documento.archivoAdjunto?.nombre || `Documento ${documento.id}`}</span>
-                        </button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={() => handleDeleteDocumentoHito(documento.id)}
-                        >
-                          Quitar
-                        </Button>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-
-              {form.archivos.map((archivo, index) => (
-                <div key={`archivo-slot-${index}`} className="space-y-2">
-                  {form.archivos.length > 1 && (
-                    <div className="flex items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() =>
-                          setForm((prev) => {
-                            clearLocalPreview();
-                            const remaining = prev.archivos.filter((_, itemIndex) => itemIndex !== index);
-                            return {
-                              ...prev,
-                              archivos: remaining.length > 0 ? remaining : [null],
-                            };
-                          })
-                        }
-                      >
-                        Quitar
-                      </Button>
-                    </div>
-                  )}
-
-                  <input
-                    id={`archivosHito-${index}`}
-                    type="file"
-                    className="hidden"
-                    aria-label={form.archivos.length > 1 ? `Seleccionar archivo ${index + 1}` : "Seleccionar archivo"}
-                    onChange={(e) => {
-                      const selectedFile = e.target.files?.[0] || null;
-                      clearLocalPreview();
-                      setSelectedArchivo(undefined);
-                      setForm((prev) => {
-                        const updated = [...prev.archivos];
-                        updated[index] = selectedFile;
-                        return { ...prev, archivos: updated };
-                      });
-                    }}
-                  />
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="h-10 w-10 shrink-0"
-                      title={form.archivos.length > 1 ? `Adjuntar archivo ${index + 1}` : "Adjuntar archivo"}
-                      onClick={() => (document.getElementById(`archivosHito-${index}`) as HTMLInputElement | null)?.click()}
-                    >
-                      <Paperclip size={18} />
-                    </Button>
-                  </div>
-                  {archivo ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <div
-                        className="flex cursor-pointer items-center gap-2 rounded-md bg-muted px-2 py-1 text-sm hover:bg-muted/80"
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => openLocalFilePreview(archivo)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            openLocalFilePreview(archivo);
-                          }
-                        }}
-                      >
-                        <span className="truncate">{archivo.name}</span>
-                        <button
-                          type="button"
-                          className="leading-none text-muted-foreground hover:text-foreground"
-                          aria-label={form.archivos.length > 1 ? `Quitar archivo ${index + 1}` : "Quitar archivo"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            clearLocalPreview();
-                            setSelectedArchivo(undefined);
-                            setForm((prev) => {
-                              const updated = [...prev.archivos];
-                              updated[index] = null;
-                              return { ...prev, archivos: updated };
-                            });
-                            const input = document.getElementById(`archivosHito-${index}`) as HTMLInputElement | null;
-                            if (input) input.value = "";
-                          }}
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-xs text-muted-foreground">Ningun archivo seleccionado.</p>
-                  )}
-                </div>
-              ))}
-
-              <Button
-                type="button"
-                variant="outline"
-                className="gap-2"
-                onClick={() => setForm((prev) => ({ ...prev, archivos: [...prev.archivos, null] }))}
-              >
-                <Paperclip size={16} />
-                Agregar otro archivo
-              </Button>
-
             </div>
 
             <div className="flex justify-end gap-2 border-t pt-4">
@@ -804,70 +548,13 @@ export default function ControlPagosHitos() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
-        open={documentosModalOpen}
-        onOpenChange={(open) => {
-          setDocumentosModalOpen(open);
-          if (!open) setSelectedHitoForDocumentos(undefined);
-        }}
-      >
-        <DialogContent className="sm:max-w-2xl bg-card">
-          <DialogHeader>
-            <DialogTitle>
-              Documentos del hito {selectedHitoForDocumentos?.nroHito ?? "-"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="max-h-[60vh] space-y-2 overflow-auto">
-            {selectedHitoDocumentos.length === 0 ? (
-              <div className="rounded-md border p-4 text-sm text-muted-foreground">
-                No hay documentos asociados para este proyecto/hito.
-              </div>
-            ) : (
-              selectedHitoDocumentos.map((documento) => (
-                <button
-                  key={documento.id}
-                  type="button"
-                  className="flex w-full items-center justify-between gap-3 rounded-md border p-3 text-left transition-colors hover:bg-muted/30"
-                  onClick={() => {
-                    if (!documento.archivoAdjunto) return;
-                    setSelectedArchivo(documento.archivoAdjunto);
-                    setViewerOpen(true);
-                  }}
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <FileText size={16} className="shrink-0 text-primary" />
-                    <span className="truncate">
-                      {documento.archivoAdjunto?.nombre || `Documento ${documento.id}`}
-                    </span>
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {formatDateOnly(documento.createdAt)}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <DocumentoViewer
-        open={viewerOpen}
-        onClose={() => {
-          setViewerOpen(false);
-          setSelectedArchivo(undefined);
-          clearLocalPreview();
-        }}
-        archivo={selectedArchivo}
-      />
-
       <ConfirmDialog
         open={Boolean(deleteId)}
         onOpenChange={(open) => {
           if (!open) setDeleteId(null);
         }}
         title="Eliminar hito"
-        description="¿Seguro que deseas eliminar este hito? Esta acción no se puede deshacer."
+        description="¿Seguro que deseas eliminar este hito? Esta accion no se puede deshacer."
         onConfirm={confirmDelete}
         confirmText="Eliminar"
         cancelText="Cancelar"
@@ -875,5 +562,3 @@ export default function ControlPagosHitos() {
     </Layout>
   );
 }
-
-

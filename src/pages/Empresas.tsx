@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Layout } from '@/components/Layout';
 import { PageHeader } from '@/components/PageHeader';
 import { EmpresaModal } from '@/components/EmpresaModal';
@@ -7,1167 +7,575 @@ import { ColaboradorModal } from '@/components/ColaboradorModal';
 import { CategoriaModal } from '@/components/CategoriaModal';
 import { TipoDocumentoModal } from '@/components/TipoDocumentoModal';
 import { TipoDocumentoProyectoModal } from '@/components/TipoDocumentoProyectoModal';
-import { empresasData as empresasDataMock, proyectosData, colaboradoresData, formatDateLong, Empresa, Proyecto, Colaborador } from '@/data/mockData';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Search, Building2, FolderKanban, Users, Tag, FileText, Pencil, Trash2 } from 'lucide-react';
-import { useEmpresas, useProyectos, useColaboradores, useCategorias, useTiposDocumento, useTiposDocumentoProyecto, useSharePointAuth } from '@/hooks/useSharePoint';
+import { Search, Building2, FolderKanban, Users, Tag, FileText, Pencil, Trash2, FolderTree } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
-import { categoriasService } from '@/services/sharepointService';
-import type { Categoria, TipoDocumento, TipoDocumentoProyecto } from '@/services/sharepointService';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ColorPicker } from '@/components/ColorPicker';
+import { formatDateLong, type Colaborador, type Empresa, type Proyecto } from '@/data/mockData';
+import {
+  postgresApi,
+  type CategoriaOption,
+  type ConfiguracionResponse,
+  type TipoDocumentoOption,
+  type TipoDocumentoProyectoOption,
+} from '@/services/postgresApi';
+
+type VistaConfiguracion =
+  | 'empresas'
+  | 'proyectos'
+  | 'colaboradores'
+  | 'categorias'
+  | 'tiposDocumento'
+  | 'tiposDocumentoProyecto';
+
+type DeleteTarget = {
+  id: string;
+  type: VistaConfiguracion;
+  label: string;
+};
+
+const VIEW_OPTIONS: Array<{
+  key: VistaConfiguracion;
+  label: string;
+  icon: typeof Building2;
+  actionLabel: string;
+}> = [
+  { key: 'empresas', label: 'Empresas', icon: Building2, actionLabel: 'Nueva Empresa' },
+  { key: 'proyectos', label: 'Proyectos', icon: FolderKanban, actionLabel: 'Nuevo Proyecto' },
+  { key: 'colaboradores', label: 'Colaboradores', icon: Users, actionLabel: 'Nuevo Colaborador' },
+  { key: 'categorias', label: 'Categorias', icon: Tag, actionLabel: 'Nueva Categoria' },
+  { key: 'tiposDocumento', label: 'Tipos de Documento', icon: FileText, actionLabel: 'Nuevo Tipo' },
+  { key: 'tiposDocumentoProyecto', label: 'Docs. de Proyecto', icon: FolderTree, actionLabel: 'Nuevo Documento' },
+];
+
+function sortByLabel<T>(items: T[], getLabel: (item: T) => string) {
+  return [...items].sort((a, b) =>
+    getLabel(a).localeCompare(getLabel(b), 'es', { sensitivity: 'base' }),
+  );
+}
+
+function renderStatusBadge(isActive?: boolean) {
+  return isActive === false ? (
+    <span className="inline-flex items-center rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+      Inactivo
+    </span>
+  ) : (
+    <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
+      Activo
+    </span>
+  );
+}
 
 export default function Empresas() {
-  const { isAuthenticated } = useSharePointAuth();
-  const { empresas: empresasSharePoint, loading: loadingEmpresas, error: errorEmpresas, createEmpresa, updateEmpresa, deleteEmpresa } = useEmpresas();
-  const { proyectos: proyectosSharePoint, loading: loadingProyectos, error: errorProyectos, createProyecto, updateProyecto, deleteProyecto } = useProyectos();
-  const { colaboradores: colaboradoresSharePoint, loading: loadingColaboradores, error: errorColaboradores, createColaborador, deleteColaborador } = useColaboradores();
-  const { categorias: categoriasSharePoint, loading: loadingCategorias, error: errorCategorias, createCategoria, updateCategoria, deleteCategoria } = useCategorias();
-  const { tiposDocumento: tiposDocumentoSharePoint, loading: loadingTiposDocumento, error: errorTiposDocumento, createTipoDocumento, updateTipoDocumento, deleteTipoDocumento } = useTiposDocumento();
-  const { tiposDocumentoProyecto: tiposDocumentoProyectoSharePoint, loading: loadingTiposDocumentoProyecto, error: errorTiposDocumentoProyecto, createTipoDocumentoProyecto, updateTipoDocumentoProyecto, deleteTipoDocumentoProyecto } = useTiposDocumentoProyecto();
-  
-  // Usar datos de SharePoint si está autenticado, sino usar datos mock
-  const empresas = isAuthenticated ? empresasSharePoint : empresasDataMock;
-  const proyectos = isAuthenticated ? proyectosSharePoint : proyectosData;
-  const colaboradores = isAuthenticated ? colaboradoresSharePoint : colaboradoresData;
-  const categorias = isAuthenticated ? categoriasSharePoint : [];
-  const tiposDocumento = isAuthenticated ? tiposDocumentoSharePoint : [];
-  const tiposDocumentoProyecto = isAuthenticated ? tiposDocumentoProyectoSharePoint : [];
-  
-  const [vista, setVista] = useState<'empresas' | 'proyectos' | 'colaboradores' | 'categorias' | 'tiposDocumento' | 'tiposDocumentoProyecto'>('empresas');
+  const [configData, setConfigData] = useState<ConfiguracionResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [vista, setVista] = useState<VistaConfiguracion>('empresas');
+  const [searchTerm, setSearchTerm] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
+  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
   const [editingEmpresa, setEditingEmpresa] = useState<Empresa | undefined>();
   const [editingProyecto, setEditingProyecto] = useState<Proyecto | undefined>();
   const [editingColaborador, setEditingColaborador] = useState<Colaborador | undefined>();
-  const [editingCategoria, setEditingCategoria] = useState<Categoria | undefined>();
-  const [editingTipoDocumento, setEditingTipoDocumento] = useState<TipoDocumento | undefined>();
-  const [editingTipoDocumentoProyecto, setEditingTipoDocumentoProyecto] = useState<TipoDocumentoProyecto | undefined>();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState<{ id: string; type: 'empresa' | 'proyecto' | 'colaborador' | 'categoria' | 'tipoDocumento' | 'tipoDocumentoProyecto' } | null>(null);
-  const [confirmTitle, setConfirmTitle] = useState('');
-  const [confirmDescription, setConfirmDescription] = useState('');
+  const [editingCategoria, setEditingCategoria] = useState<CategoriaOption | undefined>();
+  const [editingTipoDocumento, setEditingTipoDocumento] = useState<TipoDocumentoOption | undefined>();
+  const [editingTipoDocumentoProyecto, setEditingTipoDocumentoProyecto] = useState<TipoDocumentoProyectoOption | undefined>();
 
-  // Mostrar errores
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      setConfigData(await postgresApi.getConfiguracion());
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : 'No se pudo cargar la configuracion';
+      setError(message);
+      setConfigData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (errorEmpresas) {
-      toast({
-        title: "Error",
-        description: errorEmpresas.message,
-        variant: "destructive",
-      });
-    }
-    if (errorProyectos) {
-      toast({
-        title: "Error",
-        description: errorProyectos.message,
-        variant: "destructive",
-      });
-    }
-    if (errorColaboradores) {
-      toast({
-        title: "Error",
-        description: errorColaboradores.message,
-        variant: "destructive",
-      });
-    }
-    if (errorCategorias) {
-      toast({
-        title: "Error",
-        description: errorCategorias.message,
-        variant: "destructive",
-      });
-    }
-    if (errorTiposDocumento) {
-      toast({
-        title: "Error",
-        description: errorTiposDocumento.message,
-        variant: "destructive",
-      });
-    }
-    if (errorTiposDocumentoProyecto) {
-      toast({
-        title: "Error",
-        description: errorTiposDocumentoProyecto.message,
-        variant: "destructive",
-      });
-    }
-  }, [errorEmpresas, errorProyectos, errorColaboradores, errorCategorias, errorTiposDocumento, errorTiposDocumentoProyecto]);
+    void loadData();
+  }, [loadData]);
+
+  useEffect(() => {
+    if (!error) return;
+
+    toast({
+      title: 'Error de conexion',
+      description: error,
+      variant: 'destructive',
+    });
+  }, [error]);
+
+  const empresas = useMemo(() => sortByLabel(configData?.empresas || [], (item) => item.razonSocial), [configData]);
+  const proyectos = useMemo(() => sortByLabel(configData?.proyectos || [], (item) => item.nombre), [configData]);
+  const colaboradores = useMemo(() => sortByLabel(configData?.colaboradores || [], (item) => item.nombre), [configData]);
+  const categorias = useMemo(() => sortByLabel(configData?.categorias || [], (item) => item.nombre), [configData]);
+  const tiposDocumento = useMemo(() => sortByLabel(configData?.tiposDocumento || [], (item) => item.nombre), [configData]);
+  const tiposDocumentoProyecto = useMemo(
+    () => sortByLabel(configData?.tiposDocumentoProyecto || [], (item) => item.nombre),
+    [configData],
+  );
 
   const filteredEmpresas = useMemo(() => {
-    return empresas
-      .filter(empresa => 
-        empresa.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        empresa.rut.includes(searchTerm)
-      )
-      .sort((a, b) => a.razonSocial.localeCompare(b.razonSocial, 'es', { sensitivity: 'base' }));
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return empresas;
+    return empresas.filter((item) =>
+      item.razonSocial.toLowerCase().includes(term) ||
+      (item.rut || '').toLowerCase().includes(term) ||
+      (item.categoria || '').toLowerCase().includes(term),
+    );
   }, [empresas, searchTerm]);
 
   const filteredProyectos = useMemo(() => {
-    return proyectos
-      .filter(proyecto =>
-        proyecto.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return proyectos;
+    return proyectos.filter((item) =>
+      item.nombre.toLowerCase().includes(term) ||
+      (item.codigoProyecto || '').toLowerCase().includes(term) ||
+      (item.monedaBase || '').toLowerCase().includes(term),
+    );
   }, [proyectos, searchTerm]);
 
-  const filteredColaboradores = colaboradores.filter(colaborador =>
-    colaborador.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    colaborador.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    colaborador.cargo?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredColaboradores = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return colaboradores;
+    return colaboradores.filter((item) =>
+      item.nombre.toLowerCase().includes(term) ||
+      (item.email || '').toLowerCase().includes(term) ||
+      (item.telefono || '').toLowerCase().includes(term) ||
+      (item.cargo || '').toLowerCase().includes(term),
+    );
+  }, [colaboradores, searchTerm]);
 
   const filteredCategorias = useMemo(() => {
-    return categorias
-      .filter(categoria =>
-        categoria.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' }));
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return categorias;
+    return categorias.filter((item) =>
+      item.nombre.toLowerCase().includes(term) ||
+      (item.color || '').toLowerCase().includes(term),
+    );
   }, [categorias, searchTerm]);
 
-  // Ordenar tipos de documento alfabéticamente, pero "Otro" o "Otros" siempre al final
-  const tiposDocumentoOrdenados = useMemo(() => {
-    return [...tiposDocumento].sort((a, b) => {
-      const nombreA = a.nombre.toLowerCase();
-      const nombreB = b.nombre.toLowerCase();
-      
-      // Si uno es "Otro" o "Otros", va al final
-      const esOtroA = nombreA === 'otro' || nombreA === 'otros';
-      const esOtroB = nombreB === 'otro' || nombreB === 'otros';
-      
-      if (esOtroA && !esOtroB) return 1; // A va después
-      if (!esOtroA && esOtroB) return -1; // B va después
-      if (esOtroA && esOtroB) return 0; // Ambos son "Otro", mantener orden
-      
-      // Ordenar alfabéticamente
-      return nombreA.localeCompare(nombreB, 'es', { sensitivity: 'base' });
-    });
-  }, [tiposDocumento]);
-  
-  const filteredTiposDocumento = tiposDocumentoOrdenados.filter(tipo =>
-    tipo.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredTiposDocumento = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return tiposDocumento;
+    return tiposDocumento.filter((item) =>
+      item.nombre.toLowerCase().includes(term) ||
+      (item.descripcion || '').toLowerCase().includes(term),
+    );
+  }, [tiposDocumento, searchTerm]);
 
   const filteredTiposDocumentoProyecto = useMemo(() => {
-    return tiposDocumentoProyecto
-      .filter(tipo =>
-        tipo.nombre.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-      .sort((a, b) => {
-        const ordenA = typeof a.orden === 'number' ? a.orden : Number.MAX_SAFE_INTEGER;
-        const ordenB = typeof b.orden === 'number' ? b.orden : Number.MAX_SAFE_INTEGER;
-
-        if (ordenA !== ordenB) {
-          return ordenA - ordenB;
-        }
-
-        return a.nombre.localeCompare(b.nombre, 'es', { sensitivity: 'base' });
-      });
+    const term = searchTerm.trim().toLowerCase();
+    if (!term) return tiposDocumentoProyecto;
+    return tiposDocumentoProyecto.filter((item) =>
+      item.nombre.toLowerCase().includes(term) ||
+      (item.descripcion || '').toLowerCase().includes(term),
+    );
   }, [tiposDocumentoProyecto, searchTerm]);
 
-  const handleSaveEmpresa = async (newEmpresa: Omit<Empresa, 'id' | 'createdAt'>) => {
+  const activeView = useMemo(
+    () => VIEW_OPTIONS.find((option) => option.key === vista) || VIEW_OPTIONS[0],
+    [vista],
+  );
+
+  const currentCount = useMemo(() => {
+    switch (vista) {
+      case 'empresas':
+        return filteredEmpresas.length;
+      case 'proyectos':
+        return filteredProyectos.length;
+      case 'colaboradores':
+        return filteredColaboradores.length;
+      case 'categorias':
+        return filteredCategorias.length;
+      case 'tiposDocumento':
+        return filteredTiposDocumento.length;
+      case 'tiposDocumentoProyecto':
+        return filteredTiposDocumentoProyecto.length;
+    }
+  }, [
+    filteredCategorias.length,
+    filteredColaboradores.length,
+    filteredEmpresas.length,
+    filteredProyectos.length,
+    filteredTiposDocumento.length,
+    filteredTiposDocumentoProyecto.length,
+    vista,
+  ]);
+
+  const resetEditingState = () => {
+    setEditingEmpresa(undefined);
+    setEditingProyecto(undefined);
+    setEditingColaborador(undefined);
+    setEditingCategoria(undefined);
+    setEditingTipoDocumento(undefined);
+    setEditingTipoDocumentoProyecto(undefined);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    resetEditingState();
+  };
+
+  const openCreateModal = () => {
+    resetEditingState();
+    setModalOpen(true);
+  };
+
+  const handleMutationError = (fallbackMessage: string, mutationError: unknown) => {
+    toast({
+      title: 'Error',
+      description: mutationError instanceof Error ? mutationError.message : fallbackMessage,
+      variant: 'destructive',
+    });
+    throw mutationError;
+  };
+
+  const handleSaveEmpresa = async (payload: Omit<Empresa, 'id' | 'createdAt'>) => {
     try {
       if (editingEmpresa) {
-        if (isAuthenticated) {
-          await updateEmpresa(editingEmpresa.id, newEmpresa);
-          toast({
-            title: "Empresa actualizada",
-            description: "La empresa se ha actualizado correctamente en SharePoint",
-            variant: "success",
-          });
-        } else {
-          toast({
-            title: "No autenticado",
-            description: "Por favor, inicia sesión para guardar en SharePoint",
-            variant: "destructive",
-          });
-        }
+        await postgresApi.updateEmpresa(editingEmpresa.id, payload);
+        toast({ title: 'Empresa actualizada', description: 'La empresa se actualizo correctamente.', variant: 'success' });
       } else {
-        if (isAuthenticated) {
-          await createEmpresa(newEmpresa);
-          toast({
-            title: "Empresa guardada",
-            description: "La empresa se ha guardado correctamente en SharePoint",
-            variant: "success",
-          });
-        } else {
-          toast({
-            title: "No autenticado",
-            description: "Por favor, inicia sesión para guardar en SharePoint",
-            variant: "destructive",
-          });
-        }
+        await postgresApi.createEmpresa(payload);
+        toast({ title: 'Empresa creada', description: 'La empresa se guardo correctamente.', variant: 'success' });
       }
-      setEditingEmpresa(undefined);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Error al guardar la empresa",
-        variant: "destructive",
-      });
+      closeModal();
+      await loadData();
+    } catch (mutationError) {
+      handleMutationError('Error al guardar la empresa', mutationError);
     }
   };
 
-  const handleEdit = (empresa: Empresa) => {
-    setEditingEmpresa(empresa);
-    setModalOpen(true);
-  };
-
-  const handleDelete = (id: string) => {
-    console.log("🔍 handleDelete llamado con id:", id, "vista:", vista);
-    
-    if (vista === 'empresas') {
-      if (!isAuthenticated) {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para eliminar empresas",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const empresa = empresas.find(e => e.id === id);
-      const nombreEmpresa = empresa?.razonSocial || 'esta empresa';
-      
-      console.log("📝 Configurando diálogo para eliminar empresa:", nombreEmpresa);
-      setConfirmTitle("Eliminar empresa");
-      setConfirmDescription(`¿Estás seguro de que deseas eliminar la empresa "${nombreEmpresa}"? Esta acción no se puede deshacer.`);
-      setItemToDelete({ id, type: 'empresa' });
-      console.log("🔓 Abriendo diálogo de confirmación");
-      setConfirmDialogOpen(true);
-      console.log("✅ handleDelete completado - NO se eliminó nada aún");
-    } else if (vista === 'proyectos') {
-      if (!isAuthenticated) {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para eliminar proyectos",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const proyecto = proyectos.find(p => p.id === id);
-      const nombreProyecto = proyecto?.nombre || 'este proyecto';
-      
-      console.log("📝 Configurando diálogo para eliminar proyecto:", nombreProyecto);
-      setConfirmTitle("Eliminar proyecto");
-      setConfirmDescription(`¿Estás seguro de que deseas eliminar el proyecto "${nombreProyecto}"? Esta acción no se puede deshacer.`);
-      setItemToDelete({ id, type: 'proyecto' });
-      console.log("🔓 Abriendo diálogo de confirmación");
-      setConfirmDialogOpen(true);
-      console.log("✅ handleDelete completado - NO se eliminó nada aún");
-    } else if (vista === 'colaboradores') {
-      if (!isAuthenticated) {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para eliminar colaboradores",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const colaborador = colaboradores.find(c => c.id === id);
-      const nombreColaborador = colaborador?.nombre || 'este colaborador';
-      
-      console.log("📝 Configurando diálogo para eliminar colaborador:", nombreColaborador);
-      setConfirmTitle("Eliminar colaborador");
-      setConfirmDescription(`¿Estás seguro de que deseas eliminar al colaborador "${nombreColaborador}"? Esta acción no se puede deshacer.`);
-      setItemToDelete({ id, type: 'colaborador' });
-      console.log("🔓 Abriendo diálogo de confirmación");
-      setConfirmDialogOpen(true);
-      console.log("✅ handleDelete completado - NO se eliminó nada aún");
-    } else if (vista === 'categorias') {
-      if (!isAuthenticated) {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para eliminar categorías",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const categoria = categorias.find(c => c.id === id);
-      const nombreCategoria = categoria?.nombre || 'esta categoría';
-      
-      console.log("📝 Configurando diálogo para eliminar categoría:", nombreCategoria);
-      setConfirmTitle("Eliminar categoría");
-      setConfirmDescription(`¿Estás seguro de que deseas eliminar la categoría "${nombreCategoria}"? Esta acción no se puede deshacer.`);
-      setItemToDelete({ id, type: 'categoria' });
-      console.log("🔓 Abriendo diálogo de confirmación");
-      setConfirmDialogOpen(true);
-      console.log("✅ handleDelete completado - NO se eliminó nada aún");
-    } else if (vista === 'tiposDocumento') {
-      if (!isAuthenticated) {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para eliminar tipos de documento",
-          variant: "destructive",
-        });
-        return;
-      }
-      
-      const tipoDocumento = tiposDocumento.find(t => t.id === id);
-      const nombreTipoDocumento = tipoDocumento?.nombre || 'este tipo de documento';
-      
-      console.log("📝 Configurando diálogo para eliminar tipo de documento:", nombreTipoDocumento);
-      setConfirmTitle("Eliminar tipo de documento");
-      setConfirmDescription(`¿Estás seguro de que deseas eliminar el tipo de documento "${nombreTipoDocumento}"? Esta acción no se puede deshacer.`);
-      setItemToDelete({ id, type: 'tipoDocumento' });
-      console.log("🔓 Abriendo diálogo de confirmación");
-      setConfirmDialogOpen(true);
-      console.log("✅ handleDelete completado - NO se eliminó nada aún");
-    } else if (vista === 'tiposDocumentoProyecto') {
-      if (!isAuthenticated) {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para eliminar documentos de proyectos",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const tipoDocumentoProyecto = tiposDocumentoProyecto.find(t => t.id === id);
-      const nombreTipoDocumentoProyecto = tipoDocumentoProyecto?.nombre || 'este documento de proyecto';
-
-      console.log("📝 Configurando diálogo para eliminar documento de proyecto:", nombreTipoDocumentoProyecto);
-      setConfirmTitle("Eliminar documento de proyecto");
-      setConfirmDescription(`¿Estás seguro de que deseas eliminar el documento de proyecto "${nombreTipoDocumentoProyecto}"? Esta acción no se puede deshacer.`);
-      setItemToDelete({ id, type: 'tipoDocumentoProyecto' });
-      console.log("🔓 Abriendo diálogo de confirmación");
-      setConfirmDialogOpen(true);
-      console.log("✅ handleDelete completado - NO se eliminó nada aún");
-    }
-  };
-
-  const handleConfirm = async () => {
-    console.log("🚨 Empresas - handleConfirm llamado");
-    console.log("🗑️ Item a eliminar:", itemToDelete);
-    
-    if (!itemToDelete) {
-      console.log("⚠️ Empresas - No hay item para eliminar");
-      return;
-    }
-
-    const { id, type } = itemToDelete;
-    
-    try {
-      if (type === 'empresa') {
-        console.log("🔥 Empresas - Eliminando empresa:", id);
-        const empresa = empresas.find(e => e.id === id);
-        const nombreEmpresa = empresa?.razonSocial || 'la empresa';
-        await deleteEmpresa(id);
-        toast({
-          title: "Empresa eliminada",
-          description: `La empresa "${nombreEmpresa}" se ha eliminado correctamente`,
-          variant: "success",
-        });
-      } else if (type === 'proyecto') {
-        console.log("🔥 Empresas - Eliminando proyecto:", id);
-        const proyecto = proyectos.find(p => p.id === id);
-        const nombreProyecto = proyecto?.nombre || 'el proyecto';
-        await deleteProyecto(id);
-        toast({
-          title: "Proyecto eliminado",
-          description: `El proyecto "${nombreProyecto}" se ha eliminado correctamente`,
-          variant: "success",
-        });
-      } else if (type === 'colaborador') {
-        console.log("🔥 Empresas - Eliminando colaborador:", id);
-        const colaborador = colaboradores.find(c => c.id === id);
-        const nombreColaborador = colaborador?.nombre || 'el colaborador';
-        await deleteColaborador(id);
-        toast({
-          title: "Colaborador eliminado",
-          description: `El colaborador "${nombreColaborador}" se ha eliminado correctamente`,
-          variant: "success",
-        });
-      } else if (type === 'categoria') {
-        console.log("🔥 Empresas - Eliminando categoría:", id);
-        const categoria = categorias.find(c => c.id === id);
-        const nombreCategoria = categoria?.nombre || 'la categoría';
-        await deleteCategoria(id);
-        toast({
-          title: "Categoría eliminada",
-          description: `La categoría "${nombreCategoria}" se ha eliminado correctamente`,
-          variant: "success",
-        });
-      } else if (type === 'tipoDocumento') {
-        console.log("🔥 Empresas - Eliminando tipo de documento:", id);
-        const tipoDocumento = tiposDocumento.find(t => t.id === id);
-        const nombreTipoDocumento = tipoDocumento?.nombre || 'el tipo de documento';
-        await deleteTipoDocumento(id);
-        toast({
-          title: "Tipo de documento eliminado",
-          description: `El tipo de documento "${nombreTipoDocumento}" se ha eliminado correctamente`,
-          variant: "success",
-        });
-      } else if (type === 'tipoDocumentoProyecto') {
-        console.log("Eliminando documento de proyecto:", id);
-        const tipoDocumentoProyecto = tiposDocumentoProyecto.find(t => t.id === id);
-        const nombreTipoDocumentoProyecto = tipoDocumentoProyecto?.nombre || 'el documento de proyecto';
-        await deleteTipoDocumentoProyecto(id);
-        toast({
-          title: "Documento de proyecto eliminado",
-          description: `El documento de proyecto "${nombreTipoDocumentoProyecto}" se ha eliminado correctamente`,
-          variant: "success",
-        });
-      }
-      console.log("✅ Empresas - Eliminación completada");
-    } catch (error) {
-      console.log("❌ Empresas - Error al eliminar:", error);
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Error al eliminar",
-        variant: "destructive",
-      });
-    } finally {
-      setItemToDelete(null);
-      console.log("🧹 Empresas - Limpieza completada");
-    }
-  };
-
-  const handleSaveProyecto = async (newProyecto: Omit<Proyecto, 'id' | 'createdAt'>) => {
+  const handleSaveProyecto = async (payload: Omit<Proyecto, 'id' | 'createdAt'>) => {
     try {
       if (editingProyecto) {
-        if (isAuthenticated) {
-          await updateProyecto(editingProyecto.id, newProyecto);
-          toast({
-            title: "Proyecto actualizado",
-            description: "El proyecto se ha actualizado correctamente en SharePoint",
-            variant: "success",
-          });
-        } else {
-          toast({
-            title: "No autenticado",
-            description: "Por favor, inicia sesion para guardar en SharePoint",
-            variant: "destructive",
-          });
-        }
-      } else if (isAuthenticated) {
-        await createProyecto(newProyecto);
-        toast({
-          title: "Proyecto guardado",
-          description: "El proyecto se ha guardado correctamente en SharePoint",
-          variant: "success",
-        });
+        await postgresApi.updateProyecto(editingProyecto.id, payload);
+        toast({ title: 'Proyecto actualizado', description: 'El proyecto se actualizo correctamente.', variant: 'success' });
       } else {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para guardar en SharePoint",
-          variant: "destructive",
-        });
+        await postgresApi.createProyecto(payload);
+        toast({ title: 'Proyecto creado', description: 'El proyecto se guardo correctamente.', variant: 'success' });
       }
-      setEditingProyecto(undefined);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Error al guardar el proyecto",
-        variant: "destructive",
-      });
+      closeModal();
+      await loadData();
+    } catch (mutationError) {
+      handleMutationError('Error al guardar el proyecto', mutationError);
     }
   };
 
-  const handleEditProyecto = (proyecto: Proyecto) => {
-    setEditingProyecto(proyecto);
-    setModalOpen(true);
-  };
-
-  const handleSaveColaborador = async (newColaborador: Omit<Colaborador, 'id' | 'createdAt'>) => {
+  const handleSaveColaborador = async (payload: Omit<Colaborador, 'id' | 'createdAt'>) => {
     try {
-      if (isAuthenticated) {
-        await createColaborador(newColaborador);
-        toast({
-          title: "Colaborador guardado",
-          description: "El colaborador se ha guardado correctamente en SharePoint",
-        });
+      if (editingColaborador) {
+        await postgresApi.updateColaborador(editingColaborador.id, payload);
+        toast({ title: 'Colaborador actualizado', description: 'El colaborador se actualizo correctamente.', variant: 'success' });
       } else {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para guardar en SharePoint",
-          variant: "destructive",
-        });
+        await postgresApi.createColaborador(payload);
+        toast({ title: 'Colaborador creado', description: 'El colaborador se guardo correctamente.', variant: 'success' });
       }
-      setEditingColaborador(undefined);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Error al guardar el colaborador",
-        variant: "destructive",
-      });
+      closeModal();
+      await loadData();
+    } catch (mutationError) {
+      handleMutationError('Error al guardar el colaborador', mutationError);
     }
   };
 
-  const handleEditColaborador = (colaborador: Colaborador) => {
-    setEditingColaborador(colaborador);
-    setModalOpen(true);
-  };
-
-  const handleSaveCategoria = async (newCategoria: Omit<Categoria, 'id'>) => {
+  const handleSaveCategoria = async (payload: Omit<CategoriaOption, 'id' | 'color'>) => {
     try {
       if (editingCategoria) {
-        if (isAuthenticated) {
-          await updateCategoria(editingCategoria.id, newCategoria);
-          toast({
-            title: "Categoría actualizada",
-            description: "La categoría se ha actualizado correctamente en SharePoint",
-            variant: "success",
-          });
-        } else {
-          toast({
-            title: "No autenticado",
-            description: "Por favor, inicia sesión para guardar en SharePoint",
-            variant: "destructive",
-          });
-        }
+        await postgresApi.updateCategoria(editingCategoria.id, {
+          nombre: payload.nombre,
+          color: editingCategoria.color,
+          activa: editingCategoria.activa ?? true,
+        });
+        toast({ title: 'Categoria actualizada', description: 'La categoria se actualizo correctamente.', variant: 'success' });
       } else {
-        if (isAuthenticated) {
-          await createCategoria(newCategoria);
-          toast({
-            title: "Categoría guardada",
-            description: "La categoría se ha guardado correctamente en SharePoint",
-            variant: "success",
-          });
-        } else {
-          toast({
-            title: "No autenticado",
-            description: "Por favor, inicia sesión para guardar en SharePoint",
-            variant: "destructive",
-          });
-        }
+        await postgresApi.createCategoria({ nombre: payload.nombre });
+        toast({ title: 'Categoria creada', description: 'La categoria se guardo correctamente.', variant: 'success' });
       }
-      setEditingCategoria(undefined);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Error al guardar la categoría",
-        variant: "destructive",
-      });
+      closeModal();
+      await loadData();
+    } catch (mutationError) {
+      handleMutationError('Error al guardar la categoria', mutationError);
     }
   };
 
-  const handleEditCategoria = (categoria: Categoria) => {
-    setEditingCategoria(categoria);
-    setModalOpen(true);
-  };
-
-  const handleSaveTipoDocumento = async (newTipoDocumento: Omit<TipoDocumento, 'id'>) => {
+  const handleSaveTipoDocumento = async (payload: Omit<TipoDocumentoOption, 'id' | 'createdAt' | 'tieneImpuestos' | 'valorImpuestos'>) => {
     try {
       if (editingTipoDocumento) {
-        if (isAuthenticated) {
-          await updateTipoDocumento(editingTipoDocumento.id, newTipoDocumento);
-          toast({
-            title: "Tipo de documento actualizado",
-            description: "El tipo de documento se ha actualizado correctamente en SharePoint",
-            variant: "success",
-          });
-        } else {
-          toast({
-            title: "No autenticado",
-            description: "Por favor, inicia sesión para guardar en SharePoint",
-            variant: "destructive",
-          });
-        }
+        await postgresApi.updateTipoDocumento(editingTipoDocumento.id, payload);
+        toast({ title: 'Tipo actualizado', description: 'El tipo de documento se actualizo correctamente.', variant: 'success' });
       } else {
-        if (isAuthenticated) {
-          await createTipoDocumento(newTipoDocumento);
-          toast({
-            title: "Tipo de documento guardado",
-            description: "El tipo de documento se ha guardado correctamente en SharePoint",
-            variant: "success",
-          });
-        } else {
-          toast({
-            title: "No autenticado",
-            description: "Por favor, inicia sesión para guardar en SharePoint",
-            variant: "destructive",
-          });
-        }
+        await postgresApi.createTipoDocumento(payload);
+        toast({ title: 'Tipo creado', description: 'El tipo de documento se guardo correctamente.', variant: 'success' });
       }
-      setEditingTipoDocumento(undefined);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Error al guardar el tipo de documento",
-        variant: "destructive",
-      });
+      closeModal();
+      await loadData();
+    } catch (mutationError) {
+      handleMutationError('Error al guardar el tipo de documento', mutationError);
     }
   };
 
-  const handleEditTipoDocumento = (tipoDocumento: TipoDocumento) => {
-    setEditingTipoDocumento(tipoDocumento);
-    setModalOpen(true);
-  };
-
-  const handleSaveTipoDocumentoProyecto = async (newTipoDocumentoProyecto: Omit<TipoDocumentoProyecto, 'id'>) => {
+  const handleSaveTipoDocumentoProyecto = async (payload: Omit<TipoDocumentoProyectoOption, 'id' | 'createdAt'>) => {
     try {
       if (editingTipoDocumentoProyecto) {
-        if (isAuthenticated) {
-          await updateTipoDocumentoProyecto(editingTipoDocumentoProyecto.id, newTipoDocumentoProyecto);
-          toast({
-            title: "Documento de proyecto actualizado",
-            description: "El documento de proyecto se ha actualizado correctamente en SharePoint",
-            variant: "success",
-          });
-        } else {
-          toast({
-            title: "No autenticado",
-            description: "Por favor, inicia sesión para guardar en SharePoint",
-            variant: "destructive",
-          });
-        }
-      } else if (isAuthenticated) {
-        await createTipoDocumentoProyecto(newTipoDocumentoProyecto);
-        toast({
-          title: "Documento de proyecto guardado",
-          description: "El documento de proyecto se ha guardado correctamente en SharePoint",
-          variant: "success",
-        });
+        await postgresApi.updateTipoDocumentoProyecto(editingTipoDocumentoProyecto.id, payload);
+        toast({ title: 'Documento actualizado', description: 'El documento de proyecto se actualizo correctamente.', variant: 'success' });
       } else {
-        toast({
-          title: "No autenticado",
-          description: "Por favor, inicia sesión para guardar en SharePoint",
-          variant: "destructive",
-        });
+        await postgresApi.createTipoDocumentoProyecto(payload);
+        toast({ title: 'Documento creado', description: 'El documento de proyecto se guardo correctamente.', variant: 'success' });
       }
+      closeModal();
+      await loadData();
+    } catch (mutationError) {
+      handleMutationError('Error al guardar el documento de proyecto', mutationError);
+    }
+  };
 
-      setEditingTipoDocumentoProyecto(undefined);
-    } catch (error) {
+  const handleCategoriaColorChange = async (categoria: CategoriaOption, color: string) => {
+    try {
+      await postgresApi.updateCategoria(categoria.id, {
+        nombre: categoria.nombre,
+        color,
+        activa: categoria.activa ?? true,
+      });
+      toast({ title: 'Color actualizado', description: 'El color de la categoria se actualizo correctamente.', variant: 'success' });
+      await loadData();
+    } catch (mutationError) {
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Error al guardar el documento de proyecto",
-        variant: "destructive",
+        title: 'Error',
+        description: mutationError instanceof Error ? mutationError.message : 'Error al actualizar el color',
+        variant: 'destructive',
       });
     }
   };
 
-  const handleEditTipoDocumentoProyecto = (tipoDocumentoProyecto: TipoDocumentoProyecto) => {
-    setEditingTipoDocumentoProyecto(tipoDocumentoProyecto);
-    setModalOpen(true);
-  };
-
-  // Función para actualizar los colores de las categorías desde los datos locales
-  const handleUpdateCategoriasColors = async () => {
-    if (!isAuthenticated) {
-      toast({
-        title: "No autenticado",
-        description: "Por favor, inicia sesión para actualizar los colores",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setConfirmTitle("Actualizar colores de categorías");
-    setConfirmDescription("¿Deseas actualizar los colores de todas las categorías con los colores predeterminados?");
-    setConfirmAction(async () => {
-      try {
-        await categoriasService.updateCategoriasColors();
-        toast({
-          title: "Colores actualizados",
-          description: "Los colores de las categorías se han actualizado correctamente en SharePoint",
-          variant: "success",
-        });
-        // Recargar las categorías para ver los cambios
-        window.location.reload();
-      } catch (error) {
-        toast({
-          title: "Error",
-          description: error instanceof Error ? error.message : "Error al actualizar los colores",
-          variant: "destructive",
-        });
-      }
-    });
+  const handleDeleteRequest = (target: DeleteTarget) => {
+    setDeleteTarget(target);
     setConfirmDialogOpen(true);
   };
 
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+
+    try {
+      switch (deleteTarget.type) {
+        case 'empresas':
+          await postgresApi.deleteEmpresa(deleteTarget.id);
+          break;
+        case 'proyectos':
+          await postgresApi.deleteProyecto(deleteTarget.id);
+          break;
+        case 'colaboradores':
+          await postgresApi.deleteColaborador(deleteTarget.id);
+          break;
+        case 'categorias':
+          await postgresApi.deleteCategoria(deleteTarget.id);
+          break;
+        case 'tiposDocumento':
+          await postgresApi.deleteTipoDocumento(deleteTarget.id);
+          break;
+        case 'tiposDocumentoProyecto':
+          await postgresApi.deleteTipoDocumentoProyecto(deleteTarget.id);
+          break;
+      }
+
+      toast({
+        title: 'Registro eliminado',
+        description: `Se elimino correctamente "${deleteTarget.label}".`,
+        variant: 'success',
+      });
+      setConfirmDialogOpen(false);
+      setDeleteTarget(null);
+      await loadData();
+    } catch (mutationError) {
+      toast({
+        title: 'Error',
+        description: mutationError instanceof Error ? mutationError.message : 'Error al eliminar el registro',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const renderTableContent = () => {
+    if (loading) {
+      return (
+        <TableRow>
+          <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+            Cargando configuracion desde PostgreSQL...
+          </TableCell>
+        </TableRow>
+      );
+    }
+
+    if (vista === 'empresas') {
+      if (filteredEmpresas.length === 0) {
+        return (
+          <TableRow>
+            <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+              {error ? 'No se pudo cargar empresas desde PostgreSQL' : 'No hay empresas para mostrar'}
+            </TableCell>
+          </TableRow>
+        );
+      }
+
+      return filteredEmpresas.map((item) => (
+        <TableRow key={item.id}>
+          <TableCell><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Building2 size={18} className="text-muted-foreground" /></div><div><p className="font-medium">{item.razonSocial}</p><p className="text-sm text-muted-foreground">{item.categoria || '-'}</p></div></div></TableCell>
+          <TableCell className="font-mono">{item.rut || '-'}</TableCell>
+          <TableCell>{item.numeroContacto || '-'}</TableCell>
+          <TableCell>{formatDateLong(item.createdAt)}</TableCell>
+          <TableCell><div className="flex justify-center gap-1"><Button variant="ghost" size="icon" onClick={() => { setEditingEmpresa(item); setModalOpen(true); }}><Pencil size={16} /></Button><Button variant="ghost" size="icon" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest({ id: item.id, type: 'empresas', label: item.razonSocial }); }}><Trash2 size={16} className="text-destructive" /></Button></div></TableCell>
+        </TableRow>
+      ));
+    }
+
+    if (vista === 'proyectos') {
+      if (filteredProyectos.length === 0) {
+        return <TableRow><TableCell colSpan={5} className="py-10 text-center text-muted-foreground">{error ? 'No se pudo cargar proyectos desde PostgreSQL' : 'No hay proyectos para mostrar'}</TableCell></TableRow>;
+      }
+
+      return filteredProyectos.map((item) => (
+        <TableRow key={item.id}>
+          <TableCell><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><FolderKanban size={18} className="text-muted-foreground" /></div><div><p className="font-medium">{item.nombre}</p><p className="text-sm text-muted-foreground">{item.codigoProyecto || item.monedaBase || '-'}</p></div></div></TableCell>
+          <TableCell>{item.monedaBase || '-'}</TableCell>
+          <TableCell>{item.montoTotalProyecto?.toLocaleString('es-CL') || '-'}</TableCell>
+          <TableCell>{formatDateLong(item.createdAt)}</TableCell>
+          <TableCell><div className="flex justify-center gap-1"><Button variant="ghost" size="icon" onClick={() => { setEditingProyecto(item); setModalOpen(true); }}><Pencil size={16} /></Button><Button variant="ghost" size="icon" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest({ id: item.id, type: 'proyectos', label: item.nombre }); }}><Trash2 size={16} className="text-destructive" /></Button></div></TableCell>
+        </TableRow>
+      ));
+    }
+
+    if (vista === 'colaboradores') {
+      if (filteredColaboradores.length === 0) {
+        return <TableRow><TableCell colSpan={6} className="py-10 text-center text-muted-foreground">{error ? 'No se pudo cargar colaboradores desde PostgreSQL' : 'No hay colaboradores para mostrar'}</TableCell></TableRow>;
+      }
+
+      return filteredColaboradores.map((item) => (
+        <TableRow key={item.id}>
+          <TableCell><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><Users size={18} className="text-muted-foreground" /></div><span className="font-medium">{item.nombre}</span></div></TableCell>
+          <TableCell>{item.email || '-'}</TableCell>
+          <TableCell>{item.telefono || '-'}</TableCell>
+          <TableCell>{item.cargo || '-'}</TableCell>
+          <TableCell>{formatDateLong(item.createdAt)}</TableCell>
+          <TableCell><div className="flex justify-center gap-1"><Button variant="ghost" size="icon" onClick={() => { setEditingColaborador(item); setModalOpen(true); }}><Pencil size={16} /></Button><Button variant="ghost" size="icon" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest({ id: item.id, type: 'colaboradores', label: item.nombre }); }}><Trash2 size={16} className="text-destructive" /></Button></div></TableCell>
+        </TableRow>
+      ));
+    }
+
+    if (vista === 'categorias') {
+      if (filteredCategorias.length === 0) {
+        return <TableRow><TableCell colSpan={4} className="py-10 text-center text-muted-foreground">{error ? 'No se pudo cargar categorias desde PostgreSQL' : 'No hay categorias para mostrar'}</TableCell></TableRow>;
+      }
+
+      return filteredCategorias.map((item) => (
+        <TableRow key={item.id}>
+          <TableCell><div className="flex items-center gap-3"><ColorPicker currentColor={item.color || '#E5E7EB'} onColorChange={(newColor) => { void handleCategoriaColorChange(item, newColor); }} /><span className="font-medium">{item.nombre}</span></div></TableCell>
+          <TableCell>{item.color || '-'}</TableCell>
+          <TableCell>{renderStatusBadge(item.activa)}</TableCell>
+          <TableCell><div className="flex justify-center gap-1"><Button variant="ghost" size="icon" onClick={() => { setEditingCategoria(item); setModalOpen(true); }}><Pencil size={16} /></Button><Button variant="ghost" size="icon" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest({ id: item.id, type: 'categorias', label: item.nombre }); }}><Trash2 size={16} className="text-destructive" /></Button></div></TableCell>
+        </TableRow>
+      ));
+    }
+
+    if (vista === 'tiposDocumento') {
+      if (filteredTiposDocumento.length === 0) {
+        return <TableRow><TableCell colSpan={4} className="py-10 text-center text-muted-foreground">{error ? 'No se pudo cargar tipos de documento desde PostgreSQL' : 'No hay tipos de documento para mostrar'}</TableCell></TableRow>;
+      }
+
+      return filteredTiposDocumento.map((item) => (
+        <TableRow key={item.id}>
+          <TableCell><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><FileText size={18} className="text-muted-foreground" /></div><span className="font-medium">{item.nombre}</span></div></TableCell>
+          <TableCell>{item.descripcion || '-'}</TableCell>
+          <TableCell>{renderStatusBadge(item.activo)}</TableCell>
+          <TableCell><div className="flex justify-center gap-1"><Button variant="ghost" size="icon" onClick={() => { setEditingTipoDocumento(item); setModalOpen(true); }}><Pencil size={16} /></Button><Button variant="ghost" size="icon" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest({ id: item.id, type: 'tiposDocumento', label: item.nombre }); }}><Trash2 size={16} className="text-destructive" /></Button></div></TableCell>
+        </TableRow>
+      ));
+    }
+
+    if (filteredTiposDocumentoProyecto.length === 0) {
+      return <TableRow><TableCell colSpan={4} className="py-10 text-center text-muted-foreground">{error ? 'No se pudo cargar documentos de proyecto desde PostgreSQL' : 'No hay documentos de proyecto para mostrar'}</TableCell></TableRow>;
+    }
+
+    return filteredTiposDocumentoProyecto.map((item) => (
+      <TableRow key={item.id}>
+        <TableCell><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted"><FolderTree size={18} className="text-muted-foreground" /></div><span className="font-medium">{item.nombre}</span></div></TableCell>
+        <TableCell>{item.descripcion || '-'}</TableCell>
+        <TableCell>{renderStatusBadge(item.activo)}</TableCell>
+        <TableCell><div className="flex justify-center gap-1"><Button variant="ghost" size="icon" onClick={() => { setEditingTipoDocumentoProyecto(item); setModalOpen(true); }}><Pencil size={16} /></Button><Button variant="ghost" size="icon" type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteRequest({ id: item.id, type: 'tiposDocumentoProyecto', label: item.nombre }); }}><Trash2 size={16} className="text-destructive" /></Button></div></TableCell>
+      </TableRow>
+    ));
+  };
+
   return (
-    <Layout onNewGasto={() => setModalOpen(true)}>
-      <PageHeader 
-        title={vista === 'empresas' ? 'Empresas' : vista === 'proyectos' ? 'Proyectos' : vista === 'colaboradores' ? 'Colaboradores' : vista === 'categorias' ? 'Categorías' : vista === 'tiposDocumento' ? 'Tipos de Documento' : 'Documentos de Proyectos'} 
-        subtitle={vista === 'empresas' ? `${empresas.length} empresas activas` : vista === 'proyectos' ? `${proyectos.length} proyectos activos` : vista === 'colaboradores' ? `${colaboradores.length} colaboradores activos` : vista === 'categorias' ? `${categorias.length} categorías activas` : vista === 'tiposDocumento' ? `${tiposDocumento.length} tipos de documento activos` : `${tiposDocumentoProyecto.length} documentos de proyectos activos`}
-        action={{
-          label: vista === 'empresas' ? 'Nueva Empresa' : vista === 'proyectos' ? 'Nuevo Proyecto' : vista === 'colaboradores' ? 'Nuevo Colaborador' : vista === 'categorias' ? 'Nueva Categoría' : vista === 'tiposDocumento' ? 'Nuevo Tipo de Documento' : 'Nuevo Documento de Proyecto', 
-          onClick: () => setModalOpen(true) 
-        }}
+    <Layout>
+      <PageHeader
+        title="Configuracion"
+        subtitle={loading ? 'Cargando catalogos desde PostgreSQL...' : `${currentCount} registros en ${activeView.label.toLowerCase()}`}
+        action={{ label: activeView.actionLabel, onClick: openCreateModal }}
       />
 
-      {/* Toggle Empresas/Proyectos/Colaboradores/Categorías/Tipos de Documento/Documentos de Proyectos */}
-      <div className="bg-card rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 shadow-sm border border-border">
-        <ToggleGroup type="single" value={vista} onValueChange={(value) => value && setVista(value as 'empresas' | 'proyectos' | 'colaboradores' | 'categorias' | 'tiposDocumento' | 'tiposDocumentoProyecto')} className="flex-col sm:flex-row justify-start w-full sm:w-auto">
-          <ToggleGroupItem value="empresas" aria-label="Ver empresas" className="w-full sm:w-auto">
-            <Building2 size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
-            <span className="text-sm sm:text-base">Empresas</span>
-          </ToggleGroupItem>
-          <ToggleGroupItem value="proyectos" aria-label="Ver proyectos" className="w-full sm:w-auto">
-            <FolderKanban size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
-            <span className="text-sm sm:text-base">Proyectos</span>
-          </ToggleGroupItem>
-          <ToggleGroupItem value="colaboradores" aria-label="Ver colaboradores" className="w-full sm:w-auto">
-            <Users size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
-            <span className="text-sm sm:text-base">Colaboradores</span>
-          </ToggleGroupItem>
-          <ToggleGroupItem value="categorias" aria-label="Ver categorías" className="w-full sm:w-auto">
-            <Tag size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
-            <span className="text-sm sm:text-base">Categorías</span>
-          </ToggleGroupItem>
-          <ToggleGroupItem value="tiposDocumento" aria-label="Ver tipos de documento" className="w-full sm:w-auto">
-            <FileText size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
-            <span className="text-sm sm:text-base">Documentos</span>
-          </ToggleGroupItem>
-          <ToggleGroupItem value="tiposDocumentoProyecto" aria-label="Ver documentos de proyectos" className="w-full sm:w-auto">
-            <FileText size={16} className="sm:w-[18px] sm:h-[18px] mr-2" />
-            <span className="text-sm sm:text-base">Documentos de Proyectos</span>
-          </ToggleGroupItem>
-        </ToggleGroup>
-      </div>
+      <div className="mb-6 rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="relative w-full lg:max-w-md">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+            <Input placeholder={`Buscar en ${activeView.label.toLowerCase()}...`} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
+          </div>
 
-      {/* Search */}
-      <div className="bg-card rounded-xl p-3 sm:p-4 mb-4 sm:mb-6 shadow-sm border border-border">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-          <Input
-            placeholder={vista === 'empresas' ? 'Buscar por razón social o RUT...' : vista === 'proyectos' ? 'Buscar por nombre del proyecto...' : vista === 'colaboradores' ? 'Buscar por nombre, email o cargo...' : vista === 'categorias' ? 'Buscar por nombre de categoría...' : vista === 'tiposDocumento' ? 'Buscar por nombre de tipo de documento...' : 'Buscar por nombre de documento de proyecto...'}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+          <div className="flex flex-wrap gap-2">
+            {VIEW_OPTIONS.map((option) => {
+              const Icon = option.icon;
+              return (
+                <Button key={option.key} type="button" variant={vista === option.key ? 'default' : 'outline'} className="gap-2" onClick={() => setVista(option.key)}>
+                  <Icon size={16} />
+                  {option.label}
+                </Button>
+              );
+            })}
+          </div>
         </div>
-      </div>
 
-      {/* Table */}
-      <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
-        <div className="p-4 border-b border-border">
-          <h3 className="font-semibold text-sm sm:text-base">{vista === 'empresas' ? 'Empresas Activas' : vista === 'proyectos' ? 'Proyectos Activos' : vista === 'colaboradores' ? 'Colaboradores Activos' : vista === 'categorias' ? 'Categorías Activas' : vista === 'tiposDocumento' ? 'Tipos de Documento Activos' : 'Documentos de Proyectos Activos'}</h3>
-        </div>
         <div className="overflow-x-auto">
           <Table>
-          {vista === 'empresas' ? (
-            <>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">EMPRESA</TableHead>
-                  <TableHead className="font-semibold">RUT</TableHead>
-                  <TableHead className="font-semibold">CREADA</TableHead>
-                  <TableHead className="font-semibold text-center">ACCIONES</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredEmpresas.map((empresa) => (
-                  <TableRow key={empresa.id} className="animate-fade-in">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                          <Building2 size={18} className="text-muted-foreground" />
-                        </div>
-                        <span className="font-medium">{empresa.razonSocial}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="font-mono">{empresa.rut}</TableCell>
-                    <TableCell>{formatDateLong(empresa.createdAt)}</TableCell>
-                    <TableCell>
-                      <div className="flex justify-center gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleEdit(empresa)}>
-                          <Pencil size={16} />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDelete(empresa.id);
-                          }}
-                          type="button"
-                        >
-                          <Trash2 size={16} className="text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </>
-          ) : vista === 'proyectos' ? (
-            <>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">PROYECTO</TableHead>
-                  <TableHead className="font-semibold">CREADO</TableHead>
-                  <TableHead className="font-semibold text-center">ACCIONES</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredProyectos.map((proyecto) => (
-                  <TableRow key={proyecto.id} className="animate-fade-in">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                          <FolderKanban size={18} className="text-muted-foreground" />
-                        </div>
-                        <span className="font-medium">{proyecto.nombre}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{formatDateLong(proyecto.createdAt)}</TableCell>
-                    <TableCell>
-                      <div className="flex justify-center gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleEditProyecto(proyecto)}>
-                          <Pencil size={16} />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDelete(proyecto.id);
-                          }}
-                          type="button"
-                        >
-                          <Trash2 size={16} className="text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </>
-          ) : vista === 'colaboradores' ? (
-            <>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">COLABORADOR</TableHead>
-                  <TableHead className="font-semibold">EMAIL</TableHead>
-                  <TableHead className="font-semibold">TELÉFONO</TableHead>
-                  <TableHead className="font-semibold">CARGO</TableHead>
-                  <TableHead className="font-semibold">CREADO</TableHead>
-                  <TableHead className="font-semibold text-center">ACCIONES</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredColaboradores.map((colaborador) => (
-                  <TableRow key={colaborador.id} className="animate-fade-in">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                          <Users size={18} className="text-muted-foreground" />
-                        </div>
-                        <span className="font-medium">{colaborador.nombre}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">{colaborador.email || '-'}</TableCell>
-                    <TableCell className="text-muted-foreground">{colaborador.telefono || '-'}</TableCell>
-                    <TableCell className="text-muted-foreground">{colaborador.cargo || '-'}</TableCell>
-                    <TableCell>{formatDateLong(colaborador.createdAt)}</TableCell>
-                    <TableCell>
-                      <div className="flex justify-center gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleEditColaborador(colaborador)}>
-                          <Pencil size={16} />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDelete(colaborador.id);
-                          }}
-                          type="button"
-                        >
-                          <Trash2 size={16} className="text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </>
-          ) : vista === 'categorias' ? (
-            <>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">CATEGORÍA</TableHead>
-                  <TableHead className="font-semibold text-center">ACCIONES</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredCategorias.map((categoria) => (
-                  <TableRow key={categoria.id} className="animate-fade-in">
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <ColorPicker
-                          currentColor={categoria.color || 'bg-muted'}
-                          onColorChange={async (newColor) => {
-                            try {
-                              await updateCategoria(categoria.id, {
-                                nombre: categoria.nombre,
-                                color: newColor,
-                              });
-                              toast({
-                                title: "Color actualizado",
-                                description: "El color de la categoría se ha actualizado correctamente",
-                                variant: "success",
-                              });
-                            } catch (error) {
-                              toast({
-                                title: "Error",
-                                description: error instanceof Error ? error.message : "Error al actualizar el color",
-                                variant: "destructive",
-                              });
-                            }
-                          }}
-                          disabled={!isAuthenticated}
-                        />
-                        <span className="font-medium">{categoria.nombre}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex justify-center gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => handleEditCategoria(categoria)}>
-                          <Pencil size={16} />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            handleDelete(categoria.id);
-                          }}
-                          type="button"
-                        >
-                          <Trash2 size={16} className="text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </>
-          ) : vista === 'tiposDocumento' ? (
-            <>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">TIPO DE DOCUMENTO</TableHead>
-                  <TableHead className="font-semibold text-center">TIENE IMPUESTOS</TableHead>
-                  <TableHead className="font-semibold text-center">VALOR IMPUESTOS</TableHead>
-                  <TableHead className="font-semibold text-center">ACCIONES</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTiposDocumento.length > 0 ? (
-                  filteredTiposDocumento.map((tipo) => (
-                    <TableRow key={tipo.id} className="animate-fade-in">
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                            <FileText size={18} className="text-muted-foreground" />
-                          </div>
-                          <span className="font-medium">{tipo.nombre}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {tipo.tieneImpuestos ? (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            Sí
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            No
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {tipo.tieneImpuestos && tipo.valorImpuestos !== undefined ? (
-                          <span className="font-medium">
-                            {(tipo.valorImpuestos * 100).toFixed(2)}%
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-center gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditTipoDocumento(tipo)}>
-                            <Pencil size={16} />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleDelete(tipo.id);
-                            }}
-                            type="button"
-                          >
-                            <Trash2 size={16} className="text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                      {loadingTiposDocumento ? 'Cargando tipos de documento...' : 'No hay tipos de documento disponibles'}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </>
-          ) : vista === 'tiposDocumentoProyecto' ? (
-            <>
-              <TableHeader>
-                <TableRow className="bg-muted/50">
-                  <TableHead className="font-semibold">DOCUMENTO DE PROYECTO</TableHead>
-                  <TableHead className="font-semibold text-center">ACTIVO</TableHead>
-                  <TableHead className="font-semibold text-center">ORDEN</TableHead>
-                  <TableHead className="font-semibold text-center">ACCIONES</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredTiposDocumentoProyecto.length > 0 ? (
-                  filteredTiposDocumentoProyecto.map((tipo) => (
-                    <TableRow key={tipo.id} className="animate-fade-in">
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                            <FileText size={18} className="text-muted-foreground" />
-                          </div>
-                          <span className="font-medium">{tipo.nombre}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {tipo.activo ? (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            Sí
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            No
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {tipo.orden ?? '-'}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex justify-center gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleEditTipoDocumentoProyecto(tipo)}>
-                            <Pencil size={16} />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              handleDelete(tipo.id);
-                            }}
-                            type="button"
-                          >
-                            <Trash2 size={16} className="text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                      {loadingTiposDocumentoProyecto ? 'Cargando documentos de proyectos...' : 'No hay documentos de proyectos disponibles'}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </>
-          ) : null}
-        </Table>
+            <TableHeader>
+              <TableRow className="bg-muted/50">
+                {vista === 'empresas' && (<><TableHead className="font-semibold">EMPRESA</TableHead><TableHead className="font-semibold">RUT</TableHead><TableHead className="font-semibold">CONTACTO</TableHead><TableHead className="font-semibold">CREADA</TableHead><TableHead className="text-center font-semibold">ACCIONES</TableHead></>)}
+                {vista === 'proyectos' && (<><TableHead className="font-semibold">PROYECTO</TableHead><TableHead className="font-semibold">MONEDA</TableHead><TableHead className="font-semibold">MONTO TOTAL</TableHead><TableHead className="font-semibold">CREADO</TableHead><TableHead className="text-center font-semibold">ACCIONES</TableHead></>)}
+                {vista === 'colaboradores' && (<><TableHead className="font-semibold">COLABORADOR</TableHead><TableHead className="font-semibold">EMAIL</TableHead><TableHead className="font-semibold">TELEFONO</TableHead><TableHead className="font-semibold">CARGO</TableHead><TableHead className="font-semibold">CREADO</TableHead><TableHead className="text-center font-semibold">ACCIONES</TableHead></>)}
+                {vista === 'categorias' && (<><TableHead className="font-semibold">CATEGORIA</TableHead><TableHead className="font-semibold">COLOR</TableHead><TableHead className="font-semibold">ESTADO</TableHead><TableHead className="text-center font-semibold">ACCIONES</TableHead></>)}
+                {vista === 'tiposDocumento' && (<><TableHead className="font-semibold">TIPO</TableHead><TableHead className="font-semibold">DESCRIPCION</TableHead><TableHead className="font-semibold">ESTADO</TableHead><TableHead className="text-center font-semibold">ACCIONES</TableHead></>)}
+                {vista === 'tiposDocumentoProyecto' && (<><TableHead className="font-semibold">DOCUMENTO</TableHead><TableHead className="font-semibold">DESCRIPCION</TableHead><TableHead className="font-semibold">ESTADO</TableHead><TableHead className="text-center font-semibold">ACCIONES</TableHead></>)}
+              </TableRow>
+            </TableHeader>
+            <TableBody>{renderTableContent()}</TableBody>
+          </Table>
         </div>
       </div>
 
-      {vista === 'empresas' ? (
-        <EmpresaModal
-          open={modalOpen}
-          onClose={() => {
-            setModalOpen(false);
-            setEditingEmpresa(undefined);
-          }}
-          onSave={handleSaveEmpresa}
-          empresa={editingEmpresa}
-        />
-      ) : vista === 'proyectos' ? (
-        <ProyectoModal
-          open={modalOpen}
-          onClose={() => {
-            setModalOpen(false);
-            setEditingProyecto(undefined);
-          }}
-          onSave={handleSaveProyecto}
-          proyecto={editingProyecto}
-        />
-      ) : vista === 'colaboradores' ? (
-        <ColaboradorModal
-          open={modalOpen}
-          onClose={() => {
-            setModalOpen(false);
-            setEditingColaborador(undefined);
-          }}
-          onSave={handleSaveColaborador}
-          colaborador={editingColaborador}
-        />
-      ) : vista === 'categorias' ? (
-        <CategoriaModal
-          open={modalOpen}
-          onClose={() => {
-            setModalOpen(false);
-            setEditingCategoria(undefined);
-          }}
-          onSave={handleSaveCategoria}
-          categoria={editingCategoria}
-        />
-      ) : vista === 'tiposDocumentoProyecto' ? (
-        <TipoDocumentoProyectoModal
-          open={modalOpen}
-          onClose={() => {
-            setModalOpen(false);
-            setEditingTipoDocumentoProyecto(undefined);
-          }}
-          onSave={handleSaveTipoDocumentoProyecto}
-          tipoDocumentoProyecto={editingTipoDocumentoProyecto}
-        />
-      ) : (
-        <TipoDocumentoModal
-          open={modalOpen}
-          onClose={() => {
-            setModalOpen(false);
-            setEditingTipoDocumento(undefined);
-          }}
-          onSave={handleSaveTipoDocumento}
-          tipoDocumento={editingTipoDocumento}
-        />
-      )}
-      
+      {vista === 'empresas' && <EmpresaModal open={modalOpen} onClose={closeModal} onSave={handleSaveEmpresa} empresa={editingEmpresa} />}
+      {vista === 'proyectos' && <ProyectoModal open={modalOpen} onClose={closeModal} onSave={handleSaveProyecto} proyecto={editingProyecto} />}
+      {vista === 'colaboradores' && <ColaboradorModal open={modalOpen} onClose={closeModal} onSave={handleSaveColaborador} colaborador={editingColaborador} />}
+      {vista === 'categorias' && <CategoriaModal open={modalOpen} onClose={closeModal} onSave={handleSaveCategoria} categoria={editingCategoria ? { id: editingCategoria.id, nombre: editingCategoria.nombre } : undefined} />}
+      {vista === 'tiposDocumento' && <TipoDocumentoModal open={modalOpen} onClose={closeModal} onSave={handleSaveTipoDocumento} tipoDocumento={editingTipoDocumento} />}
+      {vista === 'tiposDocumentoProyecto' && <TipoDocumentoProyectoModal open={modalOpen} onClose={closeModal} onSave={handleSaveTipoDocumentoProyecto} tipoDocumentoProyecto={editingTipoDocumentoProyecto} />}
+
       <ConfirmDialog
         open={confirmDialogOpen}
         onOpenChange={(open) => {
-          console.log("🔄 Empresas - ConfirmDialog onOpenChange, open:", open);
           setConfirmDialogOpen(open);
-          if (!open) {
-            // Limpiar el estado cuando se cierra el diálogo
-            console.log("🧹 Empresas - Limpiando estado del diálogo");
-            setTimeout(() => {
-              setItemToDelete(null);
-              setConfirmTitle('');
-              setConfirmDescription('');
-            }, 100);
-          }
+          if (!open) setDeleteTarget(null);
         }}
-        title={confirmTitle}
-        description={confirmDescription}
-        onConfirm={handleConfirm}
+        title="Eliminar registro"
+        description={deleteTarget ? `Estas seguro de que deseas eliminar "${deleteTarget.label}"? Esta accion no se puede deshacer.` : 'Estas seguro de que deseas eliminar este registro?'}
+        onConfirm={confirmDelete}
         confirmText="Eliminar"
         cancelText="Cancelar"
       />

@@ -11,18 +11,21 @@ import { Save } from 'lucide-react';
 interface ProyectoModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (proyecto: Omit<Proyecto, 'id' | 'createdAt'>) => void;
+  onSave: (proyecto: Omit<Proyecto, 'id' | 'createdAt'>) => void | Promise<void>;
   proyecto?: Proyecto;
 }
 
 export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModalProps) {
   const [nombre, setNombre] = useState('');
+  const [codigoProyecto, setCodigoProyecto] = useState('');
   const [montoTotalProyecto, setMontoTotalProyecto] = useState('');
   const [monedaBase, setMonedaBase] = useState<'CLP' | 'UF' | 'USD'>('CLP');
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (proyecto) {
       setNombre(proyecto.nombre ? proyecto.nombre.toUpperCase() : '');
+      setCodigoProyecto(proyecto.codigoProyecto ? proyecto.codigoProyecto.toUpperCase() : '');
       setMontoTotalProyecto(
         proyecto.montoTotalProyecto !== undefined && proyecto.montoTotalProyecto !== null
           ? formatNumericInput(String(proyecto.montoTotalProyecto), { allowDecimal: true, maxDecimals: 2 })
@@ -31,25 +34,42 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
       setMonedaBase(proyecto.monedaBase || 'CLP');
     } else {
       setNombre('');
+      setCodigoProyecto('');
       setMontoTotalProyecto('');
       setMonedaBase('CLP');
     }
   }, [proyecto, open]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const montoTotalProyectoParsed = parseNumericInput(montoTotalProyecto, { allowDecimal: true, maxDecimals: 2 });
 
-    onSave({
-      nombre: nombre.trim().toUpperCase(),
-      montoTotalProyecto: Number.isFinite(montoTotalProyectoParsed) ? montoTotalProyectoParsed : undefined,
-      monedaBase,
-    });
-    onClose();
+    setIsSaving(true);
+
+    try {
+      await onSave({
+        nombre: nombre.trim().toUpperCase(),
+        codigoProyecto: codigoProyecto.trim() ? codigoProyecto.trim().toUpperCase() : undefined,
+        montoTotalProyecto: Number.isFinite(montoTotalProyectoParsed) ? montoTotalProyectoParsed : undefined,
+        monedaBase,
+      });
+      onClose();
+    } catch (error) {
+      console.error('Error al guardar proyecto:', error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !isSaving) {
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md bg-card">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold">
@@ -65,6 +85,16 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
               value={nombre}
               onChange={(e) => setNombre(e.target.value.toUpperCase())}
               required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="codigoProyecto">Codigo del Proyecto</Label>
+            <Input
+              id="codigoProyecto"
+              placeholder="Ej: PROY-001"
+              value={codigoProyecto}
+              onChange={(e) => setCodigoProyecto(e.target.value.toUpperCase())}
             />
           </div>
 
@@ -99,12 +129,12 @@ export function ProyectoModal({ open, onClose, onSave, proyecto }: ProyectoModal
           </div>
 
           <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button type="button" variant="outline" onClick={onClose}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={isSaving}>
               Cancelar
             </Button>
-            <Button type="submit" className="gap-2">
+            <Button type="submit" className="gap-2" disabled={isSaving}>
               <Save size={18} />
-              Guardar
+              {isSaving ? 'Guardando...' : 'Guardar'}
             </Button>
           </div>
         </form>
